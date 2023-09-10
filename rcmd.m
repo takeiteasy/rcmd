@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <Carbon/Carbon.h>
+#import <Cocoa/Cocoa.h>
 
 typedef enum {
     KEY_PAD0=128,KEY_PAD1,KEY_PAD2,KEY_PAD3,KEY_PAD4,KEY_PAD5,KEY_PAD6,KEY_PAD7,KEY_PAD8,KEY_PAD9,
@@ -245,34 +246,173 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     return result;
 }
 
+@interface AppView : NSView {}
+@end
+
+@implementation AppView
+- (id)initWithFrame:(NSRect)frame {
+    if (self = [super initWithFrame:frame]) {}
+    return self;
+}
+
+- (void)drawRect:(NSRect)frame {
+    NSBezierPath* path = [NSBezierPath bezierPathWithRoundedRect:frame
+                                                         xRadius:6.0
+                                                         yRadius:6.0];
+    [[NSColor colorWithRed:0
+                     green:0
+                      blue:0
+                     alpha:.75] set];
+    [path fill];
+}
+@end
+
+@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate> {
+    BOOL running;
+    NSWindow* window;
+    AppView* view;
+    NSTextField* label;
+    NSMutableString *labelText;
+}
+@end
+
+@implementation AppDelegate : NSObject
+- (id)init {
+    if (self = [super init]) {
+        running = NO;
+    }
+    return self;
+}
+
+-(void)begin {
+    if (running)
+        return;
+    
+    running = YES;
+    window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 0, 0)
+                                         styleMask:NSWindowStyleMaskBorderless
+                                           backing:NSBackingStoreBuffered
+                                             defer:NO];
+    label = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
+    view = [[AppView alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
+    
+    labelText = [NSMutableString stringWithString:@""];
+    [label setBezeled:NO];
+    [label setDrawsBackground:NO];
+    [label setEditable:NO];
+    [label setSelectable:NO];
+    [label setAlignment:NSTextAlignmentCenter];
+    [label setFont:[NSFont systemFontOfSize:72.0]];
+    [label setTextColor:[NSColor whiteColor]];
+    [[label cell] setBackgroundStyle:NSBackgroundStyleRaised];
+    [label sizeToFit];
+    
+    [window setTitle:NSProcessInfo.processInfo.processName];
+    [window setOpaque:NO];
+    [window setExcludedFromWindowsMenu:NO];
+    [window setBackgroundColor:[NSColor clearColor]];
+    [window setIgnoresMouseEvents:YES];
+    [window makeKeyAndOrderFront:self];
+    [window setLevel:NSFloatingWindowLevel];
+    [window setCanHide:NO];
+    [window setDelegate:self];
+    [window setReleasedWhenClosed:NO];
+    
+    [window setContentView:view];
+    [view addSubview:label];
+}
+
+
+-(void)end {
+    if (!running)
+        return;
+    running = NO;
+    [window close];
+}
+
+-(BOOL)isRunning {
+    return running;
+}
+
+-(NSMutableString*)getLabelText {
+    return labelText;
+}
+
+-(void)setLabelText:(NSString*)str {
+    if (!running)
+        return;
+
+    labelText = [NSMutableString stringWithString:str ? str : @""];
+    printf("NEW: \"%s\"\n", [labelText UTF8String]);
+    if (![labelText length]) {
+        [window setFrame:NSMakeRect(0, 0, 0, 0) display:YES];
+        [view setFrame:NSMakeRect(0, 0, 0, 0)];
+        [label setFrame:NSMakeRect(0, 0, 0, 0)];
+    } else {
+        [label setStringValue:labelText];
+        [label sizeToFit];
+        [window setFrame:NSMakeRect(([[NSScreen mainScreen] visibleFrame].origin.x + [[NSScreen mainScreen] visibleFrame].size.width / 2) - ([label frame].size.width / 2),
+                                    ([[NSScreen mainScreen] visibleFrame].origin.y + [[NSScreen mainScreen] visibleFrame].size.height / 2) - ([label frame].size.height / 2),
+                                    [label frame].size.width + 10,
+                                    [label frame].size.height + 10)
+                 display:YES];
+        [view setFrame:NSMakeRect(0, 0, [window frame].size.width, [window frame].size.height)];
+        [label setFrame:NSMakeRect(0, 0, [window frame].size.width, [window frame].size.height)];
+    }
+    [view setNeedsDisplay:YES];
+}
+@end
+
 static CFMachPortRef tap = nil;
+static AppDelegate *app = nil;
+static int rCmd = 0;
 
 static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *ref) {
+    int keyUp = 0;
     switch (type) {
-        case kCGEventKeyDown:
+        case kCGEventKeyUp:
+            keyUp = 1;
+        case kCGEventKeyDown: {
+            if (!rCmd)
+                return event;
+            uint32_t flags = (uint32_t)CGEventGetFlags(event);
+            uint8_t keycode = ConvertMacKey((uint16_t)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode));
+            uint32_t mods = ConvertMacMod(flags);
+            if (rCmd && (mods != MOD_SUPER || !(flags & NX_DEVICERCMDKEYMASK))) {
+                rCmd = false;
+                return event;
+            }
+            if (keyUp) {
+                [app setLabelText:[[app getLabelText] stringByAppendingString:[NSString stringWithFormat:@"%c", keycode]]];
+            }
             break;
+        }
+        case kCGEventFlagsChanged: {
+            uint32_t flags = (uint32_t)CGEventGetFlags(event);
+            uint32_t mods = ConvertMacMod(flags);
+            if (mods == MOD_SUPER && flags & NX_DEVICERCMDKEYMASK) {
+                if (!rCmd && ![app isRunning])
+                    [app begin];
+                rCmd = true;
+            } else {
+                if (rCmd && [app isRunning])
+                    [app end];
+                rCmd = false;
+            }
+            break;
+        }
         case kCGEventTapDisabledByTimeout:
         case kCGEventTapDisabledByUserInput:
             tap = (CFMachPortRef)ref;
             CGEventTapEnable(tap, 1);
         default:
-            goto BAIL;
+            return event;
     }
-    
-    uint32_t flags = (uint32_t)CGEventGetFlags(event);
-    uint8_t keycode = ConvertMacKey((uint16_t)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode));
-    uint32_t mods = ConvertMacMod(flags);
-    if (mods != MOD_SUPER || !(flags & NX_DEVICERCMDKEYMASK))
-        goto BAIL;
-    
     return NULL;
-    
-BAIL:
-    return event;
 }
 
-int main(int argc, const char *argv[]) {
-    if (geteuid()) {
+static int CheckPrivileges(void) {
+    if (getuid() || geteuid()) {
         fprintf(stderr, "ERROR: Run as root\n");
         return 1;
     }
@@ -289,11 +429,25 @@ int main(int argc, const char *argv[]) {
         fprintf(stderr, "ERROR: Requires accessibility permissions\n");
         return 2;
     }
-    
-    tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, 0, CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp), EventCallback, NULL);
+    return 0;
+}
+
+int main(int argc, const char *argv[]) {
+    int error = CheckPrivileges();
+    if (error)
+        return error;
+
+    tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, 0, kCGEventMaskForAllEvents, EventCallback, NULL);
     CFRunLoopSourceRef loop = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0);
     CGEventTapEnable(tap, 1);
-    CFRunLoopAddSource(CFRunLoopGetMain(), loop, kCFRunLoopCommonModes);
-    CFRunLoopRun();
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), loop, kCFRunLoopCommonModes);
+    
+    @autoreleasepool {
+        app = [AppDelegate new];
+        [NSApplication sharedApplication];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        [NSApp setDelegate:app];
+        [NSApp run];
+    }
     return 0;
 }

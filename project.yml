@@ -16,5 +16,8 @@ targets:
     platform: macOS
     sources:
       - path: rcmd.m
+      - path: project.yml
+        type: folder
     dependencies:
         - sdk: Carbon.framework
+        - sdk: Cocoa.framework
