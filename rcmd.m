@@ -3,7 +3,6 @@
 #include <sys/types.h>
 #include <Carbon/Carbon.h>
 #include <Cocoa/Cocoa.h>
-#include <pthread.h>
 #include <CoreServices/CoreServices.h>
 
 typedef enum {
@@ -369,6 +368,35 @@ static AppDelegate *app = nil;
 static int rCmd = 0;
 static NSMutableArray *apps = nil;
 
+#define MIN3(a, b, c) ((a) < (b) ? ((a) < (c) ? (a) : (c)) : ((b) < (c) ? (b) : (c)))
+
+int StringDistance(const char* a, const char* b) {
+    size_t aLength = strlen(a), bLength = strlen(b);
+    int c[aLength + 1];
+    for (int y = 1; y <= aLength; y++)
+        c[y] = y;
+    for (int x = 1; x <= bLength; ++x) {
+        c[0] = x;
+        for (int y = 1, l = x - 1; y <= aLength; ++y) {
+            int o = c[y];
+            c[y] = MIN3(c[y] + 1, c[y - 1] + 1, l + (a[y - 1] == b[x - 1] ? 0 : 1));
+            l = o;
+        }
+    }
+    return c[aLength];
+}
+
+typedef struct {
+    const char *path;
+    int distance;
+} FileDistance;
+
+static int CompareFileDistance(const void *a, const void *b) {
+    FileDistance *da = (FileDistance*)a;
+    FileDistance *db = (FileDistance*)b;
+    return da->distance - db->distance;
+}
+
 static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *ref) {
     int keyUp = 0;
     switch (type) {
@@ -385,7 +413,17 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                 return event;
             }
             if (keyUp) {
-                [app setLabelText:[[app getLabelText] stringByAppendingString:[NSString stringWithFormat:@"%c", keycode]]];
+                NSString *newText = [[app getLabelText] stringByAppendingString:[[NSString stringWithFormat:@"%c", keycode] lowercaseString]];
+                [app setLabelText:newText];
+                
+                FileDistance *distances = malloc([apps count] * sizeof(FileDistance));
+                for (int i = 0; i < [apps count]; i++) {
+                    NSString *str = (NSString*)[apps objectAtIndex:i];
+                    distances[i].path = [str UTF8String];
+                    distances[i].distance = StringDistance([str UTF8String], [newText UTF8String]);
+                }
+                qsort((void*)distances, [apps count], sizeof(FileDistance), CompareFileDistance);
+                printf("%s -- %s (%d)\n", [newText UTF8String], distances[0].path, distances[0].distance);
             }
             break;
         }
@@ -443,7 +481,8 @@ static void UpdateAppList(void) {
         fprintf(stderr, "ERROR: %s\n", [[err description] UTF8String]);
         [NSApp terminate:nil];
     }
-    [apps addObjectsFromArray:dirs];
+    for (NSString *str in dirs)
+        [apps addObject:[[[str lowercaseString] lastPathComponent] stringByDeletingPathExtension]];
 }
 
 static void FSEventCallback(ConstFSEventStreamRef streamRef, void *clientCallBackInfo, size_t numEvents, void *eventPaths, const FSEventStreamEventFlags eventFlags[], const FSEventStreamEventId eventIds[]) {
