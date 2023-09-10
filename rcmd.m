@@ -2,7 +2,9 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <Carbon/Carbon.h>
-#import <Cocoa/Cocoa.h>
+#include <Cocoa/Cocoa.h>
+#include <pthread.h>
+#include <CoreServices/CoreServices.h>
 
 typedef enum {
     KEY_PAD0=128,KEY_PAD1,KEY_PAD2,KEY_PAD3,KEY_PAD4,KEY_PAD5,KEY_PAD6,KEY_PAD7,KEY_PAD8,KEY_PAD9,
@@ -322,7 +324,6 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     [view addSubview:label];
 }
 
-
 -(void)end {
     if (!running)
         return;
@@ -366,6 +367,7 @@ static unsigned int ConvertMacMod(unsigned int flags) {
 static CFMachPortRef tap = nil;
 static AppDelegate *app = nil;
 static int rCmd = 0;
+static NSMutableArray *apps = nil;
 
 static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *ref) {
     int keyUp = 0;
@@ -432,6 +434,23 @@ static int CheckPrivileges(void) {
     return 0;
 }
 
+static void UpdateAppList(void) {
+    [apps removeAllObjects];
+    NSError *err = nil;
+    NSArray* dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/Applications"
+                                                                        error:&err];
+    if (err) {
+        fprintf(stderr, "ERROR: %s\n", [[err description] UTF8String]);
+        [NSApp terminate:nil];
+    }
+    [apps addObjectsFromArray:dirs];
+}
+
+static void FSEventCallback(ConstFSEventStreamRef streamRef, void *clientCallBackInfo, size_t numEvents, void *eventPaths, const FSEventStreamEventFlags eventFlags[], const FSEventStreamEventId eventIds[]) {
+    if (apps)
+        UpdateAppList();
+}
+
 int main(int argc, const char *argv[]) {
     int error = CheckPrivileges();
     if (error)
@@ -442,7 +461,20 @@ int main(int argc, const char *argv[]) {
     CGEventTapEnable(tap, 1);
     CFRunLoopAddSource(CFRunLoopGetCurrent(), loop, kCFRunLoopCommonModes);
     
+    CFStringRef path = CFSTR("/Applications");
+    FSEventStreamRef stream = FSEventStreamCreate(NULL,
+                                                  &FSEventCallback,
+                                                  NULL,
+                                                  CFArrayCreate(NULL, (const void**)&path, 1, NULL),
+                                                  kFSEventStreamEventIdSinceNow,
+                                                  3.0,
+                                                  kFSEventStreamCreateFlagNone);
+    FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+    FSEventStreamStart(stream);
+    
     @autoreleasepool {
+        apps = [[NSMutableArray alloc] init];
+        UpdateAppList();
         app = [AppDelegate new];
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];

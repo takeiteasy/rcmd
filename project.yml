@@ -18,6 +18,9 @@ targets:
       - path: rcmd.m
       - path: project.yml
         type: folder
+      - path: Makefile
+        type: folder
     dependencies:
         - sdk: Carbon.framework
         - sdk: Cocoa.framework
+        - sdk: CoreServices.framework
