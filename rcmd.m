@@ -10,6 +10,7 @@
 #endif
 
 typedef enum {
+    INVALID_KEY,
     KEY_BACKSPACE,
     KEY_RETURN,
     KEY_ESCAPE,
@@ -403,6 +404,8 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                 NSString *oldText = [app getLabelText];
                 NSString *newText = nil;
                 switch (keycode) {
+                    case INVALID_KEY:
+                        break;
                     case KEY_DELETE:
                     case KEY_BACKSPACE:
                         if (oldText && [oldText length])
