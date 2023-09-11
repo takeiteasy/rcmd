@@ -5,6 +5,10 @@
 #include <Cocoa/Cocoa.h>
 #include <CoreServices/CoreServices.h>
 
+#if !defined(MAX_SUGGESTIONS)
+#define MAX_SUGGESTIONS 5
+#endif
+
 typedef enum {
     KEY_PAD0=128,KEY_PAD1,KEY_PAD2,KEY_PAD3,KEY_PAD4,KEY_PAD5,KEY_PAD6,KEY_PAD7,KEY_PAD8,KEY_PAD9,
     KEY_PADMUL,KEY_PADADD,KEY_PADENTER,KEY_PADSUB,KEY_PADDOT,KEY_PADDIV,
@@ -247,10 +251,26 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     return result;
 }
 
-@interface AppView : NSView {}
+@interface TextView : NSView {}
 @end
 
-@implementation AppView
+@interface TextWindow : NSWindow {
+    TextView* view;
+    NSTextField* label;
+}
+@property (nonatomic, strong) NSMutableString *labelText;
+@end
+
+@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate> {
+    BOOL running;
+}
+@property (nonatomic, strong) TextWindow *textWindow;
+@property (nonatomic, strong) TextWindow *suggestionWindow;
+@property (nonatomic, strong) NSMutableArray *suggestions;
+@property int maxSuggestions;
+@end
+
+@implementation TextView
 - (id)initWithFrame:(NSRect)frame {
     if (self = [super initWithFrame:frame]) {}
     return self;
@@ -268,66 +288,99 @@ static unsigned int ConvertMacMod(unsigned int flags) {
 }
 @end
 
-@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate> {
-    BOOL running;
-    NSWindow* window;
-    AppView* view;
-    NSTextField* label;
-    NSMutableString *labelText;
+@implementation TextWindow
+@synthesize labelText;
+
+-(id)initWithDelegate:(id<NSWindowDelegate>)delegate andFontSize:(double)fontSize {
+    if (self = [super initWithContentRect:NSMakeRect(0, 0, 0, 0)
+                                styleMask:NSWindowStyleMaskBorderless
+                                  backing:NSBackingStoreBuffered
+                                    defer:NO]) {
+        label = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
+        view = [[TextView alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
+        
+        labelText = [NSMutableString stringWithString:@""];
+        
+        [label setBezeled:NO];
+        [label setDrawsBackground:NO];
+        [label setEditable:NO];
+        [label setSelectable:NO];
+        [label setAlignment:NSTextAlignmentCenter];
+        [label setFont:[NSFont systemFontOfSize:fontSize]];
+        [label setTextColor:[NSColor whiteColor]];
+        [[label cell] setBackgroundStyle:NSBackgroundStyleRaised];
+        [label sizeToFit];
+        
+        [self setTitle:NSProcessInfo.processInfo.processName];
+        [self setOpaque:NO];
+        [self setExcludedFromWindowsMenu:NO];
+        [self setBackgroundColor:[NSColor clearColor]];
+        [self setIgnoresMouseEvents:YES];
+        [self makeKeyAndOrderFront:self];
+        [self setLevel:NSFloatingWindowLevel];
+        [self setCanHide:NO];
+        [self setDelegate:delegate];
+        [self setReleasedWhenClosed:NO];
+        
+        [self setContentView:view];
+        [view addSubview:label];
+    }
+    return self;
+}
+
+-(void)update:(BOOL)offset {
+    if (![labelText length]) {
+        [self setFrame:NSMakeRect(0, 0, 0, 0)
+               display:YES];
+        [view setFrame:NSMakeRect(0, 0, 0, 0)];
+        [label setFrame:NSMakeRect(0, 0, 0, 0)];
+    } else {
+        [label setStringValue:labelText];
+        [label sizeToFit];
+        int x = ([[NSScreen mainScreen] visibleFrame].origin.x + [[NSScreen mainScreen] visibleFrame].size.width / 2) - ([label frame].size.width / 2);
+        int y = ([[NSScreen mainScreen] visibleFrame].origin.y + [[NSScreen mainScreen] visibleFrame].size.height / (offset ? 4 : 2)) - ([label frame].size.height / 2);
+        int w = [label frame].size.width + 10;
+        int h = [label frame].size.height + 10;
+        [self setFrame:NSMakeRect(x, y, w, h)
+               display:YES];
+        [view setFrame:NSMakeRect(0, 0, w, h)];
+        [label setFrame:NSMakeRect(0, 0, w, h)];
+    }
+    [view setNeedsDisplay:YES];
 }
 @end
 
 @implementation AppDelegate : NSObject
+@synthesize textWindow;
+@synthesize suggestionWindow;
+@synthesize suggestions;
+@synthesize maxSuggestions;
+
 - (id)init {
     if (self = [super init]) {
         running = NO;
+        maxSuggestions = MAX_SUGGESTIONS;
     }
     return self;
 }
 
 -(void)begin {
-    if (running)
-        return;
-    
-    running = YES;
-    window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 0, 0)
-                                         styleMask:NSWindowStyleMaskBorderless
-                                           backing:NSBackingStoreBuffered
-                                             defer:NO];
-    label = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
-    view = [[AppView alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
-    
-    labelText = [NSMutableString stringWithString:@""];
-    [label setBezeled:NO];
-    [label setDrawsBackground:NO];
-    [label setEditable:NO];
-    [label setSelectable:NO];
-    [label setAlignment:NSTextAlignmentCenter];
-    [label setFont:[NSFont systemFontOfSize:72.0]];
-    [label setTextColor:[NSColor whiteColor]];
-    [[label cell] setBackgroundStyle:NSBackgroundStyleRaised];
-    [label sizeToFit];
-    
-    [window setTitle:NSProcessInfo.processInfo.processName];
-    [window setOpaque:NO];
-    [window setExcludedFromWindowsMenu:NO];
-    [window setBackgroundColor:[NSColor clearColor]];
-    [window setIgnoresMouseEvents:YES];
-    [window makeKeyAndOrderFront:self];
-    [window setLevel:NSFloatingWindowLevel];
-    [window setCanHide:NO];
-    [window setDelegate:self];
-    [window setReleasedWhenClosed:NO];
-    
-    [window setContentView:view];
-    [view addSubview:label];
+    if (!running) {
+        running = YES;
+        textWindow = [[TextWindow alloc] initWithDelegate:self
+                                              andFontSize:72.0];
+        suggestionWindow = [[TextWindow alloc] initWithDelegate:self
+                                                    andFontSize:32.0];
+        suggestions = [[NSMutableArray alloc] init];
+    }
 }
 
 -(void)end {
-    if (!running)
-        return;
-    running = NO;
-    [window close];
+    if (running) {
+        running = NO;
+        [textWindow close];
+        [suggestionWindow close];
+    }
 }
 
 -(BOOL)isRunning {
@@ -335,31 +388,33 @@ static unsigned int ConvertMacMod(unsigned int flags) {
 }
 
 -(NSMutableString*)getLabelText {
-    return labelText;
+    return [textWindow labelText];
 }
 
 -(void)setLabelText:(NSString*)str {
-    if (!running)
-        return;
-
-    labelText = [NSMutableString stringWithString:str ? str : @""];
-    printf("NEW: \"%s\"\n", [labelText UTF8String]);
-    if (![labelText length]) {
-        [window setFrame:NSMakeRect(0, 0, 0, 0) display:YES];
-        [view setFrame:NSMakeRect(0, 0, 0, 0)];
-        [label setFrame:NSMakeRect(0, 0, 0, 0)];
-    } else {
-        [label setStringValue:labelText];
-        [label sizeToFit];
-        [window setFrame:NSMakeRect(([[NSScreen mainScreen] visibleFrame].origin.x + [[NSScreen mainScreen] visibleFrame].size.width / 2) - ([label frame].size.width / 2),
-                                    ([[NSScreen mainScreen] visibleFrame].origin.y + [[NSScreen mainScreen] visibleFrame].size.height / 2) - ([label frame].size.height / 2),
-                                    [label frame].size.width + 10,
-                                    [label frame].size.height + 10)
-                 display:YES];
-        [view setFrame:NSMakeRect(0, 0, [window frame].size.width, [window frame].size.height)];
-        [label setFrame:NSMakeRect(0, 0, [window frame].size.width, [window frame].size.height)];
+    if (running) {
+        [textWindow setLabelText:[NSMutableString stringWithString:str ? str : @""]];
+        [suggestions removeAllObjects];
     }
-    [view setNeedsDisplay:YES];
+}
+
+-(void)addSuggestion:(NSString*)name {
+    if (running) {
+        NSString *fullPath = [NSString stringWithFormat:@"/Applications/%@.app", name];
+        [suggestions addObject:fullPath];
+    }
+}
+
+-(void)updateWindow {
+    [textWindow update:NO];
+    NSMutableString *suggestionText = [[NSMutableString alloc] init];
+    for (int i = 0; i < [suggestions count]; i++) {
+        [suggestionText appendString:(NSString*)[suggestions objectAtIndex:i]];
+        if (i != [suggestions count] - 1)
+            [suggestionText appendString:@"\n"];
+    }
+    [suggestionWindow setLabelText:suggestionText];
+    [suggestionWindow update:YES];
 }
 @end
 
@@ -388,6 +443,7 @@ int StringDistance(const char* a, const char* b) {
 
 typedef struct {
     const char *path;
+    const char *test;
     int distance;
 } FileDistance;
 
@@ -404,14 +460,16 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
             keyUp = 1;
         case kCGEventKeyDown: {
             if (!rCmd)
-                return event;
+                break;
+            
             uint32_t flags = (uint32_t)CGEventGetFlags(event);
             uint8_t keycode = ConvertMacKey((uint16_t)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode));
             uint32_t mods = ConvertMacMod(flags);
             if (rCmd && (mods != MOD_SUPER || !(flags & NX_DEVICERCMDKEYMASK))) {
                 rCmd = false;
-                return event;
+                break;
             }
+            
             if (keyUp) {
                 NSString *newText = [[app getLabelText] stringByAppendingString:[[NSString stringWithFormat:@"%c", keycode] lowercaseString]];
                 [app setLabelText:newText];
@@ -420,12 +478,16 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                 for (int i = 0; i < [apps count]; i++) {
                     NSString *str = (NSString*)[apps objectAtIndex:i];
                     distances[i].path = [str UTF8String];
+                    distances[i].test = [[str lowercaseString] UTF8String];
                     distances[i].distance = StringDistance([str UTF8String], [newText UTF8String]);
                 }
                 qsort((void*)distances, [apps count], sizeof(FileDistance), CompareFileDistance);
-                printf("%s -- %s (%d)\n", [newText UTF8String], distances[0].path, distances[0].distance);
-            }
-            break;
+                for (int i = 0; i < [app maxSuggestions]; i++)
+                    [app addSuggestion:@(distances[i].path)];
+                [app updateWindow];
+                break;
+            } else
+                return NULL;
         }
         case kCGEventFlagsChanged: {
             uint32_t flags = (uint32_t)CGEventGetFlags(event);
@@ -446,9 +508,9 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
             tap = (CFMachPortRef)ref;
             CGEventTapEnable(tap, 1);
         default:
-            return event;
+            break;
     }
-    return NULL;
+    return event;
 }
 
 static int CheckPrivileges(void) {
@@ -482,7 +544,8 @@ static void UpdateAppList(void) {
         [NSApp terminate:nil];
     }
     for (NSString *str in dirs)
-        [apps addObject:[[[str lowercaseString] lastPathComponent] stringByDeletingPathExtension]];
+        [apps addObject:[[str lastPathComponent] stringByDeletingPathExtension]];
+    [app setMaxSuggestions:MAX_SUGGESTIONS > [apps count] ? (int)[apps count] : MAX_SUGGESTIONS];
 }
 
 static void FSEventCallback(ConstFSEventStreamRef streamRef, void *clientCallBackInfo, size_t numEvents, void *eventPaths, const FSEventStreamEventFlags eventFlags[], const FSEventStreamEventId eventIds[]) {
