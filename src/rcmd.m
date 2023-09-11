@@ -11,8 +11,6 @@ typedef enum {
     KEY_BACKSPACE,
     KEY_RETURN,
     KEY_ESCAPE,
-    KEY_UP,
-    KEY_DOWN,
     KEY_DELETE
 } Key;
 
@@ -130,10 +128,6 @@ static uint8_t ConvertMacKey(uint16_t key) {
             return KEY_ESCAPE;
         case kVK_Space:
             return ' ';
-        case kVK_UpArrow:
-            return KEY_UP;
-        case kVK_DownArrow:
-            return KEY_DOWN;
         case kVK_ANSI_Semicolon:
             return ';';
         case kVK_ANSI_Equal:
@@ -151,7 +145,7 @@ static uint8_t ConvertMacKey(uint16_t key) {
         case kVK_ANSI_RightBracket:
             return ']';
         default:
-            return 0;
+            return INVALID_KEY;
     }
 }
 
@@ -236,7 +230,7 @@ static void sendMessageWithPayload(const char *message, const char *payload) {
 @implementation TextWindow
 @synthesize labelText;
 
--(id)initWithDelegate:(id<NSWindowDelegate>)delegate andFontSize:(double)fontSize {
+-(id)initWithDelegate:(id<NSWindowDelegate>)delegate {
     if (self = [super initWithContentRect:NSMakeRect(0, 0, 0, 0)
                                 styleMask:NSWindowStyleMaskBorderless
                                   backing:NSBackingStoreBuffered
@@ -251,7 +245,7 @@ static void sendMessageWithPayload(const char *message, const char *payload) {
         [label setEditable:NO];
         [label setSelectable:NO];
         [label setAlignment:NSTextAlignmentCenter];
-        [label setFont:[NSFont systemFontOfSize:fontSize]];
+        [label setFont:[NSFont systemFontOfSize:72]];
         [label setTextColor:[NSColor whiteColor]];
         [[label cell] setBackgroundStyle:NSBackgroundStyleRaised];
         [label sizeToFit];
@@ -308,8 +302,7 @@ static void sendMessageWithPayload(const char *message, const char *payload) {
 -(void)begin {
     if (!running) {
         running = YES;
-        textWindow = [[TextWindow alloc] initWithDelegate:self
-                                              andFontSize:72.0];
+        textWindow = [[TextWindow alloc] initWithDelegate:self];
         sendMessage("begin");
     }
 }
@@ -363,6 +356,7 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                 rCmdDown = NO;
                 break;
             }
+            
             if (keyUp) {
                 BOOL resizeWindow = NO;
                 NSMutableString *oldText = [app getLabelText];
@@ -381,12 +375,6 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                         [app setLabelText:@""];
                     case KEY_RETURN:
                         [app end];
-                        break;
-                    case KEY_UP:
-                        // TODO: Change selected suggestion
-                        break;
-                    case KEY_DOWN:
-                        // TODO: Change selected suggestion
                         break;
                     default:
                         resizeWindow = YES;
@@ -459,6 +447,7 @@ int main(int argc, const char *argv[]) {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
         [NSApp setDelegate:app];
+        [NSApp activateIgnoringOtherApps:YES];
         [NSApp run];
     }
     return 0;
