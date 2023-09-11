@@ -10,14 +10,12 @@
 #endif
 
 typedef enum {
-    KEY_PAD0=128,KEY_PAD1,KEY_PAD2,KEY_PAD3,KEY_PAD4,KEY_PAD5,KEY_PAD6,KEY_PAD7,KEY_PAD8,KEY_PAD9,
-    KEY_PADMUL,KEY_PADADD,KEY_PADENTER,KEY_PADSUB,KEY_PADDOT,KEY_PADDIV,
-    KEY_F1,KEY_F2,KEY_F3,KEY_F4,KEY_F5,KEY_F6,KEY_F7,KEY_F8,KEY_F9,KEY_F10,KEY_F11,KEY_F12,
-    KEY_BACKSPACE,KEY_TAB,KEY_RETURN,KEY_SHIFT,KEY_CONTROL,KEY_ALT,KEY_PAUSE,KEY_CAPSLOCK,
-    KEY_ESCAPE,KEY_SPACE,KEY_PAGEUP,KEY_PAGEDN,KEY_END,KEY_HOME,KEY_LEFT,KEY_UP,KEY_RIGHT,KEY_DOWN,
-    KEY_INSERT,KEY_DELETE,KEY_LWIN,KEY_RWIN,KEY_NUMLOCK,KEY_SCROLL,KEY_LSHIFT,KEY_RSHIFT,
-    KEY_LCONTROL,KEY_RCONTROL,KEY_LALT,KEY_RALT,KEY_SEMICOLON,KEY_EQUALS,KEY_COMMA,KEY_MINUS,
-    KEY_DOT,KEY_SLASH,KEY_BACKTICK,KEY_LSQUARE,KEY_BACKSLASH,KEY_RSQUARE,KEY_TICK
+    KEY_BACKSPACE,
+    KEY_RETURN,
+    KEY_ESCAPE,
+    KEY_UP,
+    KEY_DOWN,
+    KEY_DELETE
 } Key;
 
 typedef enum {
@@ -102,137 +100,68 @@ static uint8_t ConvertMacKey(uint16_t key) {
         case kVK_ANSI_9:
             return '9';
         case kVK_ANSI_Keypad0:
-            return KEY_PAD0;
+            return '0';
         case kVK_ANSI_Keypad1:
-            return KEY_PAD1;
+            return '1';
         case kVK_ANSI_Keypad2:
-            return KEY_PAD2;
+            return '2';
         case kVK_ANSI_Keypad3:
-            return KEY_PAD3;
+            return '3';
         case kVK_ANSI_Keypad4:
-            return KEY_PAD4;
+            return '4';
         case kVK_ANSI_Keypad5:
-            return KEY_PAD5;
+            return '5';
         case kVK_ANSI_Keypad6:
-            return KEY_PAD6;
+            return '6';
         case kVK_ANSI_Keypad7:
-            return KEY_PAD7;
+            return '7';
         case kVK_ANSI_Keypad8:
-            return KEY_PAD8;
+            return '8';
         case kVK_ANSI_Keypad9:
-            return KEY_PAD9;
+            return '9';
         case kVK_ANSI_KeypadMultiply:
-            return KEY_PADMUL;
+            return '*';
         case kVK_ANSI_KeypadPlus:
-            return KEY_PADADD;
+            return '+';
         case kVK_ANSI_KeypadEnter:
-            return KEY_PADENTER;
+            return KEY_RETURN;
+        case kVK_ANSI_Minus:
         case kVK_ANSI_KeypadMinus:
-            return KEY_PADSUB;
+            return '-';
+        case kVK_ANSI_Period:
         case kVK_ANSI_KeypadDecimal:
-            return KEY_PADDOT;
+            return '.';
+        case kVK_ANSI_Slash:
         case kVK_ANSI_KeypadDivide:
-            return KEY_PADDIV;
-        case kVK_F1:
-            return KEY_F1;
-        case kVK_F2:
-            return KEY_F2;
-        case kVK_F3:
-            return KEY_F3;
-        case kVK_F4:
-            return KEY_F4;
-        case kVK_F5:
-            return KEY_F5;
-        case kVK_F6:
-            return KEY_F6;
-        case kVK_F7:
-            return KEY_F7;
-        case kVK_F8:
-            return KEY_F8;
-        case kVK_F9:
-            return KEY_F9;
-        case kVK_F10:
-            return KEY_F10;
-        case kVK_F11:
-            return KEY_F11;
-        case kVK_F12:
-            return KEY_F12;
-        case kVK_Shift:
-            return KEY_LSHIFT;
-        case kVK_Control:
-            return KEY_LCONTROL;
-        case kVK_Option:
-            return KEY_LALT;
-        case kVK_CapsLock:
-            return KEY_CAPSLOCK;
-        case kVK_Command:
-            return KEY_LWIN;
-        case kVK_Command - 1:
-            return KEY_RWIN;
-        case kVK_RightShift:
-            return KEY_RSHIFT;
-        case kVK_RightControl:
-            return KEY_RCONTROL;
-        case kVK_RightOption:
-            return KEY_RALT;
+            return '/';
         case kVK_Delete:
             return KEY_BACKSPACE;
-        case kVK_Tab:
-            return KEY_TAB;
         case kVK_Return:
             return KEY_RETURN;
         case kVK_Escape:
             return KEY_ESCAPE;
         case kVK_Space:
-            return KEY_SPACE;
-        case kVK_PageUp:
-            return KEY_PAGEUP;
-        case kVK_PageDown:
-            return KEY_PAGEDN;
-        case kVK_End:
-            return KEY_END;
-        case kVK_Home:
-            return KEY_HOME;
-        case kVK_LeftArrow:
-            return KEY_LEFT;
+            return ' ';
         case kVK_UpArrow:
             return KEY_UP;
-        case kVK_RightArrow:
-            return KEY_RIGHT;
         case kVK_DownArrow:
             return KEY_DOWN;
-        case kVK_Help:
-            return KEY_INSERT;
-        case kVK_ForwardDelete:
-            return KEY_DELETE;
-        case kVK_F14:
-            return KEY_SCROLL;
-        case kVK_F15:
-            return KEY_PAUSE;
-        case kVK_ANSI_KeypadClear:
-            return KEY_NUMLOCK;
         case kVK_ANSI_Semicolon:
-            return KEY_SEMICOLON;
+            return ';';
         case kVK_ANSI_Equal:
-            return KEY_EQUALS;
+            return '=';
         case kVK_ANSI_Comma:
-            return KEY_COMMA;
-        case kVK_ANSI_Minus:
-            return KEY_MINUS;
-        case kVK_ANSI_Slash:
-            return KEY_SLASH;
+            return ',';
         case kVK_ANSI_Backslash:
-            return KEY_BACKSLASH;
+            return '\\';
         case kVK_ANSI_Grave:
-            return KEY_BACKTICK;
+            return '`';
         case kVK_ANSI_Quote:
-            return KEY_TICK;
+            return '\'';
         case kVK_ANSI_LeftBracket:
-            return KEY_LSQUARE;
+            return '[';
         case kVK_ANSI_RightBracket:
-            return KEY_RSQUARE;
-        case kVK_ANSI_Period:
-            return KEY_DOT;
+            return ']';
         default:
             return 0;
     }
@@ -466,25 +395,51 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
             uint8_t keycode = ConvertMacKey((uint16_t)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode));
             uint32_t mods = ConvertMacMod(flags);
             if (rCmd && (mods != MOD_SUPER || !(flags & NX_DEVICERCMDKEYMASK))) {
-                rCmd = false;
+                rCmd = NO;
                 break;
             }
             
             if (keyUp) {
-                NSString *newText = [[app getLabelText] stringByAppendingString:[[NSString stringWithFormat:@"%c", keycode] lowercaseString]];
-                [app setLabelText:newText];
-                
-                FileDistance *distances = malloc([apps count] * sizeof(FileDistance));
-                for (int i = 0; i < [apps count]; i++) {
-                    NSString *str = (NSString*)[apps objectAtIndex:i];
-                    distances[i].path = [str UTF8String];
-                    distances[i].test = [[str lowercaseString] UTF8String];
-                    distances[i].distance = StringDistance([str UTF8String], [newText UTF8String]);
+                NSString *oldText = [app getLabelText];
+                NSString *newText = nil;
+                switch (keycode) {
+                    case KEY_DELETE:
+                    case KEY_BACKSPACE:
+                        if (oldText && [oldText length])
+                            newText = [oldText substringWithRange:NSMakeRange(0, [oldText length] - 1)];
+                        break;
+                    case KEY_RETURN:
+                        // TODO: Select current suggestion
+                        break;
+                    case KEY_ESCAPE:
+                        [app end];
+                        break;
+                    case KEY_UP:
+                        // TODO: Change selected suggestion
+                        break;
+                    case KEY_DOWN:
+                        // TODO: Change selected suggestion
+                        break;
+                    default:
+                        newText = [oldText stringByAppendingString:[[NSString stringWithFormat:@"%c", keycode] lowercaseString]];
+                        break;
                 }
-                qsort((void*)distances, [apps count], sizeof(FileDistance), CompareFileDistance);
-                for (int i = 0; i < [app maxSuggestions]; i++)
-                    [app addSuggestion:@(distances[i].path)];
-                [app updateWindow];
+                
+                if (newText) {
+                    [app setLabelText:newText];
+                    
+                    FileDistance *distances = malloc([apps count] * sizeof(FileDistance));
+                    for (int i = 0; i < [apps count]; i++) {
+                        NSString *str = (NSString*)[apps objectAtIndex:i];
+                        distances[i].path = [str UTF8String];
+                        distances[i].test = [[str lowercaseString] UTF8String];
+                        distances[i].distance = StringDistance([str UTF8String], [newText UTF8String]);
+                    }
+                    qsort((void*)distances, [apps count], sizeof(FileDistance), CompareFileDistance);
+                    for (int i = 0; i < [app maxSuggestions]; i++)
+                        [app addSuggestion:@(distances[i].path)];
+                    [app updateWindow];
+                }
                 break;
             } else
                 return NULL;
