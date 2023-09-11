@@ -3,6 +3,8 @@
 #include <sys/types.h>
 #include <Carbon/Carbon.h>
 #include <Cocoa/Cocoa.h>
+#define JIM_IMPLEMENTATION
+#include "jim.h"
 
 typedef enum {
     INVALID_KEY,
@@ -166,6 +168,37 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     return result;
 }
 
+static void sendMessage(const char *message) {
+    Jim jim = {
+        .sink = stdout,
+        .write = (Jim_Write)fwrite
+    };
+    jim_object_begin(&jim);
+    jim_member_key(&jim, "message");
+    jim_string(&jim, message);
+    jim_object_end(&jim);
+    fprintf(stdout, "\n");
+    fflush(stdout);
+}
+
+static void sendMessageWithPayload(const char *message, const char *payload) {
+    Jim jim = {
+        .sink = stdout,
+        .write = (Jim_Write)fwrite
+    };
+    jim_object_begin(&jim);
+    jim_member_key(&jim, "message");
+    jim_string(&jim, message);
+    jim_member_key(&jim, "payload");
+    jim_object_begin(&jim);
+    jim_member_key(&jim, "data");
+    jim_string(&jim, payload);
+    jim_object_end(&jim);
+    jim_object_end(&jim);
+    fprintf(stdout, "\n");
+    fflush(stdout);
+}
+
 @interface TextView : NSView {}
 @end
 
@@ -211,7 +244,7 @@ static unsigned int ConvertMacMod(unsigned int flags) {
         label = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
         view = [[TextView alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
         
-        labelText = [NSMutableString stringWithString:@""];
+        labelText = [[NSMutableString alloc] initWithString:@""];
         
         [label setBezeled:NO];
         [label setDrawsBackground:NO];
@@ -277,6 +310,7 @@ static unsigned int ConvertMacMod(unsigned int flags) {
         running = YES;
         textWindow = [[TextWindow alloc] initWithDelegate:self
                                               andFontSize:72.0];
+        sendMessage("begin");
     }
 }
 
@@ -284,6 +318,10 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     if (running) {
         running = NO;
         [textWindow close];
+        if ([[textWindow labelText] length])
+            sendMessageWithPayload("end", [[textWindow labelText] UTF8String]);
+        else
+            sendMessage("exit");
     }
 }
 
@@ -296,19 +334,19 @@ static unsigned int ConvertMacMod(unsigned int flags) {
 }
 
 -(void)setLabelText:(NSString*)str {
-    if (running) {
-        [textWindow setLabelText:[NSMutableString stringWithString:str ? str : @""]];
-    }
+    if (running)
+        [[textWindow labelText] setString:str];
 }
 
 -(void)resizeWindow {
-    [textWindow resize];
+    if (running)
+        [textWindow resize];
 }
 @end
 
 static CFMachPortRef tap = nil;
 static AppDelegate *app = nil;
-static BOOL rCmd = NO;
+static BOOL rCmdDown = NO;
 
 static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *ref) {
     int keyUp = 0;
@@ -316,32 +354,32 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
         case kCGEventKeyUp:
             keyUp = 1;
         case kCGEventKeyDown: {
-            if (!rCmd)
+            if (!rCmdDown)
                 break;
-            
             uint32_t flags = (uint32_t)CGEventGetFlags(event);
             uint8_t keycode = ConvertMacKey((uint16_t)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode));
             uint32_t mods = ConvertMacMod(flags);
-            if (rCmd && (mods != MOD_SUPER || !(flags & NX_DEVICERCMDKEYMASK))) {
-                rCmd = NO;
+            if (mods != MOD_SUPER || !(flags & NX_DEVICERCMDKEYMASK)) {
+                rCmdDown = NO;
                 break;
             }
-            
             if (keyUp) {
-                NSString *oldText = [app getLabelText];
-                NSString *newText = nil;
+                BOOL resizeWindow = NO;
+                NSMutableString *oldText = [app getLabelText];
                 switch (keycode) {
                     case INVALID_KEY:
                         break;
                     case KEY_DELETE:
                     case KEY_BACKSPACE:
-                        if (oldText && [oldText length])
-                            newText = [oldText substringWithRange:NSMakeRange(0, [oldText length] - 1)];
-                        break;
-                    case KEY_RETURN:
-                        // TODO: Select current suggestion
+                        if (oldText && [oldText length]) {
+                            resizeWindow = YES;
+                            [app setLabelText:[oldText substringWithRange:NSMakeRange(0, [oldText length] - 1)]];
+                            sendMessageWithPayload("update", [[app getLabelText] UTF8String]);
+                        }
                         break;
                     case KEY_ESCAPE:
+                        [app setLabelText:@""];
+                    case KEY_RETURN:
                         [app end];
                         break;
                     case KEY_UP:
@@ -351,40 +389,38 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                         // TODO: Change selected suggestion
                         break;
                     default:
-                        newText = [oldText stringByAppendingString:[[NSString stringWithFormat:@"%c", keycode] lowercaseString]];
+                        resizeWindow = YES;
+                        [app setLabelText:[oldText stringByAppendingFormat:@"%c", keycode]];
+                        sendMessageWithPayload("update", [[app getLabelText] UTF8String]);
                         break;
                 }
                 
-                if (newText) {
-                    [app setLabelText:newText];
+                if (resizeWindow)
                     [app resizeWindow];
-                }
-                break;
-            } else
-                return NULL;
+            }
+            break;
         }
         case kCGEventFlagsChanged: {
             uint32_t flags = (uint32_t)CGEventGetFlags(event);
             uint32_t mods = ConvertMacMod(flags);
             if (mods == MOD_SUPER && flags & NX_DEVICERCMDKEYMASK) {
-                if (!rCmd && ![app isRunning])
-                    [app begin];
-                rCmd = YES;
+                rCmdDown = YES;
+                [app begin];
             } else {
-                if (rCmd && [app isRunning])
+                if (rCmdDown) {
+                    rCmdDown = NO;
                     [app end];
-                rCmd = NO;
+                }
             }
             break;
         }
         case kCGEventTapDisabledByTimeout:
         case kCGEventTapDisabledByUserInput:
-            tap = (CFMachPortRef)ref;
             CGEventTapEnable(tap, 1);
         default:
             break;
     }
-    return event;
+    return rCmdDown ? NULL : event;
 }
 
 static int CheckPrivileges(void) {
