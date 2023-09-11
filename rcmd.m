@@ -3,8 +3,6 @@
 #include <sys/types.h>
 #include <Carbon/Carbon.h>
 #include <Cocoa/Cocoa.h>
-#define JIM_IMPLEMENTATION
-#include "jim.h"
 
 typedef enum {
     INVALID_KEY,
@@ -162,37 +160,6 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     return result;
 }
 
-static void sendMessage(const char *message) {
-    Jim jim = {
-        .sink = stdout,
-        .write = (Jim_Write)fwrite
-    };
-    jim_object_begin(&jim);
-    jim_member_key(&jim, "message");
-    jim_string(&jim, message);
-    jim_object_end(&jim);
-    fprintf(stdout, "\n");
-    fflush(stdout);
-}
-
-static void sendMessageWithPayload(const char *message, const char *payload) {
-    Jim jim = {
-        .sink = stdout,
-        .write = (Jim_Write)fwrite
-    };
-    jim_object_begin(&jim);
-    jim_member_key(&jim, "message");
-    jim_string(&jim, message);
-    jim_member_key(&jim, "payload");
-    jim_object_begin(&jim);
-    jim_member_key(&jim, "data");
-    jim_string(&jim, payload);
-    jim_object_end(&jim);
-    jim_object_end(&jim);
-    fprintf(stdout, "\n");
-    fflush(stdout);
-}
-
 @interface TextView : NSView {}
 @end
 
@@ -303,7 +270,6 @@ static void sendMessageWithPayload(const char *message, const char *payload) {
     if (!running) {
         running = YES;
         textWindow = [[TextWindow alloc] initWithDelegate:self];
-        sendMessage("begin");
     }
 }
 
@@ -311,10 +277,6 @@ static void sendMessageWithPayload(const char *message, const char *payload) {
     if (running) {
         running = NO;
         [textWindow close];
-        if ([[textWindow labelText] length])
-            sendMessageWithPayload("end", [[textWindow labelText] UTF8String]);
-        else
-            sendMessage("exit");
     }
 }
 
@@ -368,7 +330,6 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                         if (oldText && [oldText length]) {
                             resizeWindow = YES;
                             [app setLabelText:[oldText substringWithRange:NSMakeRange(0, [oldText length] - 1)]];
-                            sendMessageWithPayload("update", [[app getLabelText] UTF8String]);
                         }
                         break;
                     case KEY_ESCAPE:
@@ -379,7 +340,6 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                     default:
                         resizeWindow = YES;
                         [app setLabelText:[oldText stringByAppendingFormat:@"%c", keycode]];
-                        sendMessageWithPayload("update", [[app getLabelText] UTF8String]);
                         break;
                 }
                 

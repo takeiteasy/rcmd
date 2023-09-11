@@ -15,14 +15,12 @@ targets:
     type: tool
     platform: macOS
     sources:
-      - path: src/
+      - path: rcmd.m
       - path: project.yml
         type: folder
       - path: Makefile
         type: folder
       - path: README.md
-        type: folder
-      - path: test.py
         type: folder
     dependencies:
         - sdk: Carbon.framework
