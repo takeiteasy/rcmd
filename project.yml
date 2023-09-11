@@ -25,4 +25,3 @@ targets:
     dependencies:
         - sdk: Carbon.framework
         - sdk: Cocoa.framework
-        - sdk: CoreServices.framework

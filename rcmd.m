@@ -3,11 +3,6 @@
 #include <sys/types.h>
 #include <Carbon/Carbon.h>
 #include <Cocoa/Cocoa.h>
-#include <CoreServices/CoreServices.h>
-
-#if !defined(MAX_SUGGESTIONS)
-#define MAX_SUGGESTIONS 5
-#endif
 
 typedef enum {
     INVALID_KEY,
@@ -81,43 +76,33 @@ static uint8_t ConvertMacKey(uint16_t key) {
         case kVK_ANSI_M:
             return 'M';
         case kVK_ANSI_0:
-            return '0';
-        case kVK_ANSI_1:
-            return '1';
-        case kVK_ANSI_2:
-            return '2';
-        case kVK_ANSI_3:
-            return '3';
-        case kVK_ANSI_4:
-            return '4';
-        case kVK_ANSI_5:
-            return '5';
-        case kVK_ANSI_6:
-            return '6';
-        case kVK_ANSI_7:
-            return '7';
-        case kVK_ANSI_8:
-            return '8';
-        case kVK_ANSI_9:
-            return '9';
         case kVK_ANSI_Keypad0:
             return '0';
+        case kVK_ANSI_1:
         case kVK_ANSI_Keypad1:
             return '1';
+        case kVK_ANSI_2:
         case kVK_ANSI_Keypad2:
             return '2';
+        case kVK_ANSI_3:
         case kVK_ANSI_Keypad3:
             return '3';
+        case kVK_ANSI_4:
         case kVK_ANSI_Keypad4:
             return '4';
+        case kVK_ANSI_5:
         case kVK_ANSI_Keypad5:
             return '5';
+        case kVK_ANSI_6:
         case kVK_ANSI_Keypad6:
             return '6';
+        case kVK_ANSI_7:
         case kVK_ANSI_Keypad7:
             return '7';
+        case kVK_ANSI_8:
         case kVK_ANSI_Keypad8:
             return '8';
+        case kVK_ANSI_9:
         case kVK_ANSI_Keypad9:
             return '9';
         case kVK_ANSI_KeypadMultiply:
@@ -195,9 +180,6 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     BOOL running;
 }
 @property (nonatomic, strong) TextWindow *textWindow;
-@property (nonatomic, strong) TextWindow *suggestionWindow;
-@property (nonatomic, strong) NSMutableArray *suggestions;
-@property int maxSuggestions;
 @end
 
 @implementation TextView
@@ -258,7 +240,7 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     return self;
 }
 
--(void)update:(BOOL)offset {
+-(void)resize {
     if (![labelText length]) {
         [self setFrame:NSMakeRect(0, 0, 0, 0)
                display:YES];
@@ -268,7 +250,7 @@ static unsigned int ConvertMacMod(unsigned int flags) {
         [label setStringValue:labelText];
         [label sizeToFit];
         int x = ([[NSScreen mainScreen] visibleFrame].origin.x + [[NSScreen mainScreen] visibleFrame].size.width / 2) - ([label frame].size.width / 2);
-        int y = ([[NSScreen mainScreen] visibleFrame].origin.y + [[NSScreen mainScreen] visibleFrame].size.height / (offset ? 4 : 2)) - ([label frame].size.height / 2);
+        int y = ([[NSScreen mainScreen] visibleFrame].origin.y + [[NSScreen mainScreen] visibleFrame].size.height / 2) - ([label frame].size.height / 2);
         int w = [label frame].size.width + 10;
         int h = [label frame].size.height + 10;
         [self setFrame:NSMakeRect(x, y, w, h)
@@ -282,14 +264,10 @@ static unsigned int ConvertMacMod(unsigned int flags) {
 
 @implementation AppDelegate : NSObject
 @synthesize textWindow;
-@synthesize suggestionWindow;
-@synthesize suggestions;
-@synthesize maxSuggestions;
 
 - (id)init {
     if (self = [super init]) {
         running = NO;
-        maxSuggestions = MAX_SUGGESTIONS;
     }
     return self;
 }
@@ -299,9 +277,6 @@ static unsigned int ConvertMacMod(unsigned int flags) {
         running = YES;
         textWindow = [[TextWindow alloc] initWithDelegate:self
                                               andFontSize:72.0];
-        suggestionWindow = [[TextWindow alloc] initWithDelegate:self
-                                                    andFontSize:32.0];
-        suggestions = [[NSMutableArray alloc] init];
     }
 }
 
@@ -309,7 +284,6 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     if (running) {
         running = NO;
         [textWindow close];
-        [suggestionWindow close];
     }
 }
 
@@ -324,64 +298,17 @@ static unsigned int ConvertMacMod(unsigned int flags) {
 -(void)setLabelText:(NSString*)str {
     if (running) {
         [textWindow setLabelText:[NSMutableString stringWithString:str ? str : @""]];
-        [suggestions removeAllObjects];
     }
 }
 
--(void)addSuggestion:(NSString*)name {
-    if (running) {
-        NSString *fullPath = [NSString stringWithFormat:@"/Applications/%@.app", name];
-        [suggestions addObject:fullPath];
-    }
-}
-
--(void)updateWindow {
-    [textWindow update:NO];
-    NSMutableString *suggestionText = [[NSMutableString alloc] init];
-    for (int i = 0; i < [suggestions count]; i++) {
-        [suggestionText appendString:(NSString*)[suggestions objectAtIndex:i]];
-        if (i != [suggestions count] - 1)
-            [suggestionText appendString:@"\n"];
-    }
-    [suggestionWindow setLabelText:suggestionText];
-    [suggestionWindow update:YES];
+-(void)resizeWindow {
+    [textWindow resize];
 }
 @end
 
 static CFMachPortRef tap = nil;
 static AppDelegate *app = nil;
-static int rCmd = 0;
-static NSMutableArray *apps = nil;
-
-#define MIN3(a, b, c) ((a) < (b) ? ((a) < (c) ? (a) : (c)) : ((b) < (c) ? (b) : (c)))
-
-int StringDistance(const char* a, const char* b) {
-    size_t aLength = strlen(a), bLength = strlen(b);
-    int c[aLength + 1];
-    for (int y = 1; y <= aLength; y++)
-        c[y] = y;
-    for (int x = 1; x <= bLength; ++x) {
-        c[0] = x;
-        for (int y = 1, l = x - 1; y <= aLength; ++y) {
-            int o = c[y];
-            c[y] = MIN3(c[y] + 1, c[y - 1] + 1, l + (a[y - 1] == b[x - 1] ? 0 : 1));
-            l = o;
-        }
-    }
-    return c[aLength];
-}
-
-typedef struct {
-    const char *path;
-    const char *test;
-    int distance;
-} FileDistance;
-
-static int CompareFileDistance(const void *a, const void *b) {
-    FileDistance *da = (FileDistance*)a;
-    FileDistance *db = (FileDistance*)b;
-    return da->distance - db->distance;
-}
+static BOOL rCmd = NO;
 
 static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *ref) {
     int keyUp = 0;
@@ -430,18 +357,7 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                 
                 if (newText) {
                     [app setLabelText:newText];
-                    
-                    FileDistance *distances = malloc([apps count] * sizeof(FileDistance));
-                    for (int i = 0; i < [apps count]; i++) {
-                        NSString *str = (NSString*)[apps objectAtIndex:i];
-                        distances[i].path = [str UTF8String];
-                        distances[i].test = [[str lowercaseString] UTF8String];
-                        distances[i].distance = StringDistance([str UTF8String], [newText UTF8String]);
-                    }
-                    qsort((void*)distances, [apps count], sizeof(FileDistance), CompareFileDistance);
-                    for (int i = 0; i < [app maxSuggestions]; i++)
-                        [app addSuggestion:@(distances[i].path)];
-                    [app updateWindow];
+                    [app resizeWindow];
                 }
                 break;
             } else
@@ -453,11 +369,11 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
             if (mods == MOD_SUPER && flags & NX_DEVICERCMDKEYMASK) {
                 if (!rCmd && ![app isRunning])
                     [app begin];
-                rCmd = true;
+                rCmd = YES;
             } else {
                 if (rCmd && [app isRunning])
                     [app end];
-                rCmd = false;
+                rCmd = NO;
             }
             break;
         }
@@ -492,25 +408,6 @@ static int CheckPrivileges(void) {
     return 0;
 }
 
-static void UpdateAppList(void) {
-    [apps removeAllObjects];
-    NSError *err = nil;
-    NSArray* dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/Applications"
-                                                                        error:&err];
-    if (err) {
-        fprintf(stderr, "ERROR: %s\n", [[err description] UTF8String]);
-        [NSApp terminate:nil];
-    }
-    for (NSString *str in dirs)
-        [apps addObject:[[str lastPathComponent] stringByDeletingPathExtension]];
-    [app setMaxSuggestions:MAX_SUGGESTIONS > [apps count] ? (int)[apps count] : MAX_SUGGESTIONS];
-}
-
-static void FSEventCallback(ConstFSEventStreamRef streamRef, void *clientCallBackInfo, size_t numEvents, void *eventPaths, const FSEventStreamEventFlags eventFlags[], const FSEventStreamEventId eventIds[]) {
-    if (apps)
-        UpdateAppList();
-}
-
 int main(int argc, const char *argv[]) {
     int error = CheckPrivileges();
     if (error)
@@ -521,20 +418,7 @@ int main(int argc, const char *argv[]) {
     CGEventTapEnable(tap, 1);
     CFRunLoopAddSource(CFRunLoopGetCurrent(), loop, kCFRunLoopCommonModes);
     
-    CFStringRef path = CFSTR("/Applications");
-    FSEventStreamRef stream = FSEventStreamCreate(NULL,
-                                                  &FSEventCallback,
-                                                  NULL,
-                                                  CFArrayCreate(NULL, (const void**)&path, 1, NULL),
-                                                  kFSEventStreamEventIdSinceNow,
-                                                  3.0,
-                                                  kFSEventStreamCreateFlagNone);
-    FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
-    FSEventStreamStart(stream);
-    
     @autoreleasepool {
-        apps = [[NSMutableArray alloc] init];
-        UpdateAppList();
         app = [AppDelegate new];
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
