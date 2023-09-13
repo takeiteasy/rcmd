@@ -10,13 +10,15 @@
 #endif
 
 static struct {
-    int enableManualMode;
-    int enableVerboseMode;
+    BOOL enableManualMode;
+    BOOL enableVerboseMode;
     int matchTolerance;
+    BOOL disableDynamicBlacklist;
 } Args = {
     .enableManualMode = NO,
     .enableVerboseMode = NO,
-    .matchTolerance = DEFAULT_TOLERANCE
+    .matchTolerance = DEFAULT_TOLERANCE,
+    .disableDynamicBlacklist = NO
 };
 
 #define LOGF(MSG, ...)              \
@@ -31,6 +33,7 @@ static struct option long_options[] = {
     {"manual", no_argument, NULL, 'm'},
     {"blacklist", required_argument, NULL, 'b'},
     {"tolerance", required_argument, NULL, 't'},
+    {"no-dynamic-blacklist", no_argument, NULL, 'd'},
     {"verbose", no_argument, NULL, 'v'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}
@@ -52,6 +55,8 @@ static void usage(void) {
     puts("    * --manual/-m -- Press return key to switch windows");
     puts("    * --blacklist/-b -- Path to app blacklist");
     puts("    * --tolerance/-t -- Fuzzy matching tolerance (default: 1)");
+    puts("    * --no-dynamic-blacklist/-d -- Disable dynamically blacklisting apps");
+    puts("                                   with no windows on screen.");
     puts("    * --verbose/-b -- Enable logging");
     puts("    * --help/-h -- Display this message");
 }
@@ -331,6 +336,7 @@ static bool match(const char *pat, long plen, const char *str, long slen)  {
 
 @interface WindowManager : NSObject {
     NSArray *localBlacklist;
+    NSMutableArray *dynamicBlacklist;
 }
 @property (nonatomic, strong) NSMutableArray *windows;
 @end
@@ -476,6 +482,7 @@ static const char *globalBlacklist[] = {
     if (self = [super init]) {
         windows = [[NSMutableArray alloc] init];
         localBlacklist = nil;
+        dynamicBlacklist = [[NSMutableArray alloc] init];
         [self refreshWindowList];
     }
     return self;
@@ -492,7 +499,13 @@ static const char *globalBlacklist[] = {
     return localBlacklist && [localBlacklist count];
 }
 
--(BOOL)checkAgainstBlacklist:(NSString*)test {
+-(BOOL)checkAgainstBlacklists:(NSString*)test {
+    if (!Args.disableDynamicBlacklist)
+        for (NSString *rule in dynamicBlacklist)
+            if ([test isEqualToString:rule])
+                return YES;
+    if (!localBlacklist)
+        return NO;
     for (NSString *rule in localBlacklist)
         if ([test wildcardMatchString:rule])
             return YES;
@@ -512,7 +525,7 @@ static const char *globalBlacklist[] = {
                 break;
             }
         if (!skip)
-            skip = [self checkAgainstBlacklist:parentName];
+            skip = [self checkAgainstBlacklists:parentName];
         if (skip)
             continue;
         NSNumber *windowNumber = (NSNumber*)[dict objectForKey:@"kCGWindowNumber"];
@@ -529,7 +542,7 @@ static const char *globalBlacklist[] = {
     }
 }
 
--(NSArray*)findChildren:(long)parentPID {
+-(NSArray*)getWindows:(long)parentPID {
     NSMutableArray *result = [[NSMutableArray alloc] init];
     for (int i = 0; i < [windows count]; i++) {
         Window *window = [windows objectAtIndex:i];
@@ -548,7 +561,7 @@ static const char *globalBlacklist[] = {
     return [parents count] ? [parents valueForKeyPath:[NSString stringWithFormat:@"@distinctUnionOfObjects.%@", @"self"]] : nil;
 }
 
--(NSArray*)searchChildren:(NSString*)test {
+-(NSArray*)findBestMatch:(NSString*)test {
     if (![windows count] || !test || ![test length])
         return nil;
     
@@ -560,6 +573,8 @@ static const char *globalBlacklist[] = {
     NSString *closest = nil;
     long lowestDistance = LONG_MAX;
     for (NSString *parent in parents) {
+        if ([self checkAgainstBlacklists:parent])
+            continue;
         NSString *test = parent;
         if ([[test pathExtension] isEqualToString:@"app"])
             test = [[test lastPathComponent] stringByDeletingPathExtension];
@@ -603,16 +618,30 @@ static const char *globalBlacklist[] = {
     }
     assert(parentPID);
     
-    return [self findChildren:parentPID];
+    return [self getWindows:parentPID];
 }
 
 -(void)focusWindow:(NSString*)test {
-    NSArray *results = [self searchChildren:test];
+    NSArray *results = [self findBestMatch:test];
     assert(results && [results count]);
-    Window *firstWindow = [results objectAtIndex:0];
-    LOGF(@"* FOCUSING WINDOW: %@ (pid:%ld, wid:%ld)", [firstWindow parentName], [firstWindow parentPID], [firstWindow windowNumber]);
+    Window *focuedWindow = nil;
+    for (Window *window in results)
+        if ([window isOnScreen]) {
+            focuedWindow = window;
+            break;
+        }
+    if (!focuedWindow) {
+        LOGF(@"* NO ON SCREEN WINDOWS FOUND FOR \"%@\"", test);
+        NSString *name = [(Window*)[results objectAtIndex:0] parentName];
+        if (!Args.disableDynamicBlacklist) {
+            LOGF(@"* ADDING \"%@\" TO BLACKLIST", name);
+            [dynamicBlacklist addObject:name];
+        }
+        return;
+    }
+    LOGF(@"* FOCUSING WINDOW: %@ (pid:%ld, wid:%ld)", [focuedWindow parentName], [focuedWindow parentPID], [focuedWindow windowNumber]);
     
-    pid_t pid = (pid_t)[firstWindow parentPID];
+    pid_t pid = (pid_t)[focuedWindow parentPID];
     AXUIElementRef axWindows = AXUIElementCreateApplication(pid);
     NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
     [app activateWithOptions:NSApplicationActivateIgnoringOtherApps];
@@ -780,7 +809,7 @@ int main(int argc, char *argv[]) {
     extern char* optarg;
     extern int optopt;
     const char *blacklistPath = NULL;
-    while ((opt = getopt_long(argc, argv, "hvmb:", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "hvdmb:", long_options, NULL)) != -1) {
         switch (opt) {
             case 'm':
                 Args.enableManualMode = YES;
@@ -790,6 +819,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 't':
                 Args.matchTolerance = atoi(optarg);
+                break;
+            case 'd':
+                Args.disableDynamicBlacklist = YES;
                 break;
             case 'v':
                 Args.enableVerboseMode = YES;
