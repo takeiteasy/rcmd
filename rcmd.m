@@ -433,16 +433,15 @@ static const char *blacklist[] = {
             lowestDistance = d;
         }
     }
-    
     assert(closest);
     
     long mostSimilarities = LONG_MIN;
     for (NSString *key in results) {
-        NSString *test = [key lowercaseString];
-        if ([[test pathExtension] isEqualToString:@"app"])
-            test = [[test lastPathComponent] stringByDeletingPathExtension];
         NSNumber *value = [results objectForKey:key];
         if ([value longValue] <= lowestDistance+TOLERANCE) {
+            NSString *test = [key lowercaseString];
+            if ([[test pathExtension] isEqualToString:@"app"])
+                test = [[test lastPathComponent] stringByDeletingPathExtension];
             long similiarities = 0;
             for (int i = 0; i < [testLower length]; i++)
                 for (int j = 0; j < [test length]; j++)
@@ -467,6 +466,18 @@ static const char *blacklist[] = {
     assert(parentPID);
     
     return [self findChildren:parentPID];
+}
+
+-(void)focusWindow:(NSString*)test {
+    NSArray *windows = [self searchChildren:test];
+    assert(windows && [windows count]);
+    Window *firstWindow = [windows objectAtIndex:0];
+    
+    pid_t pid = (pid_t)[firstWindow parentPID];
+    AXUIElementRef axWindows = AXUIElementCreateApplication(pid);
+    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+    [app activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+    AXUIElementPerformAction(axWindows, kAXRaiseAction);
 }
 @end
 
@@ -561,11 +572,7 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                         resizeWindow = YES;
                         NSString *newText = [oldText stringByAppendingFormat:@"%c", keycode];
                         [app setLabelText:newText];
-                        
-                        NSArray *windows = [[app windowManager] searchChildren:newText];
-                        assert(windows && [windows count]);
-                        Window *firstWindow = [windows objectAtIndex:0];
-                        NSLog(@"%@, %ld, %ld", [firstWindow parentName], [firstWindow parentPID], [firstWindow windowNumber]);
+                        [[app windowManager] focusWindow:newText];
                         break;
                 }
                 
