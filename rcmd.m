@@ -783,11 +783,6 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
 }
 
 static int CheckPrivileges(void) {
-    if (getuid() || geteuid()) {
-        fprintf(stderr, "ERROR: Process requires root permissions\n");
-        return 1;
-    }
-    
     const void *keys[] = { kAXTrustedCheckOptionPrompt };
     const void *values[] = { kCFBooleanTrue };
     CFDictionaryRef options = CFDictionaryCreate(kCFAllocatorDefault,

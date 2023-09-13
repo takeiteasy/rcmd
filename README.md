@@ -40,7 +40,7 @@ You have three choices:
 2. Run ```make app``` and ```make install-app``` to build and install the app version
 3. Use [xcodegen](https://github.com/yonaskolb/XcodeGen) to generate the Xcode project
 
-**NOTE**: This app needs both administrator and accessibility permissions to run.
+**NOTE**: This app needs accessibility permissions to run.
 
 ## Credits
 
