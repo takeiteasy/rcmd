@@ -597,9 +597,9 @@ static const char *globalBlacklist[] = {
 }
 
 -(void)focusWindow:(NSString*)test {
-    NSArray *windows = [self searchChildren:test];
-    assert(windows && [windows count]);
-    Window *firstWindow = [windows objectAtIndex:0];
+    NSArray *results = [self searchChildren:test];
+    assert(results && [results count]);
+    Window *firstWindow = [results objectAtIndex:0];
     LOGF(@"* FOCUSING WINDOW: %@ (pid:%ld, wid:%ld)", [firstWindow parentName], [firstWindow parentPID], [firstWindow windowNumber]);
     
     pid_t pid = (pid_t)[firstWindow parentPID];
@@ -765,10 +765,6 @@ static int CheckPrivileges(void) {
 }
 
 int main(int argc, char *argv[]) {
-    int error = CheckPrivileges();
-    if (error)
-        return error;
-    
     int opt;
     extern int optind;
     extern char* optarg;
@@ -794,6 +790,10 @@ int main(int argc, char *argv[]) {
                 return 3;
         }
     }
+    
+    int error = CheckPrivileges();
+    if (error)
+        return error;
     
     tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, 0, kCGEventMaskForAllEvents, EventCallback, NULL);
     assert(tap);
