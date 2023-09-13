@@ -5,10 +5,19 @@
 #include <Cocoa/Cocoa.h>
 #include <getopt.h>
 
+#if !defined(DEFAULT_TOLERANCE)
+#define DEFAULT_TOLERANCE 1
+#endif
+
 static struct {
     int enableManualMode;
     int enableVerboseMode;
-} Args;
+    int matchTolerance;
+} Args = {
+    .enableManualMode = NO,
+    .enableVerboseMode = NO,
+    .matchTolerance = DEFAULT_TOLERANCE
+};
 
 #define LOGF(MSG, ...)              \
 do {                                \
@@ -21,6 +30,7 @@ do {                                \
 static struct option long_options[] = {
     {"manual", no_argument, NULL, 'm'},
     {"blacklist", required_argument, NULL, 'b'},
+    {"tolerance", required_argument, NULL, 't'},
     {"verbose", no_argument, NULL, 'v'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}
@@ -41,6 +51,8 @@ static void usage(void) {
     puts("  Arguments:");
     puts("    * --manual/-m -- Press return key to switch windows");
     puts("    * --blacklist/-b -- Path to app blacklist");
+    puts("    * --tolerance/-t -- Fuzzy matching tolerance (default: 1)");
+    puts("    * --verbose/-b -- Enable logging");
     puts("    * --help/-h -- Display this message");
 }
 
@@ -536,8 +548,6 @@ static const char *globalBlacklist[] = {
     return [parents count] ? [parents valueForKeyPath:[NSString stringWithFormat:@"@distinctUnionOfObjects.%@", @"self"]] : nil;
 }
 
-#define TOLERANCE 1
-
 -(NSArray*)searchChildren:(NSString*)test {
     if (![windows count] || !test || ![test length])
         return nil;
@@ -565,7 +575,7 @@ static const char *globalBlacklist[] = {
     long mostSimilarities = LONG_MIN;
     for (NSString *key in results) {
         NSNumber *value = [results objectForKey:key];
-        if ([value longValue] <= lowestDistance+TOLERANCE) {
+        if ([value longValue] <= lowestDistance+Args.matchTolerance) {
             NSString *test = [key lowercaseString];
             if ([[test pathExtension] isEqualToString:@"app"])
                 test = [[test lastPathComponent] stringByDeletingPathExtension];
@@ -777,6 +787,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'b':
                 blacklistPath = optarg;
+                break;
+            case 't':
+                Args.matchTolerance = atoi(optarg);
                 break;
             case 'v':
                 Args.enableVerboseMode = YES;

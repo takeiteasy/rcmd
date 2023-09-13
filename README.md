@@ -19,6 +19,7 @@ usage: rcmd [options]
   Arguments:
     * --manual/-m -- Press return key to switch windows
     * --blacklist/-b -- Path to app blacklist
+    * --tolerance/-t -- Fuzzy matching tolerance (default: 1)
     * --verbose/-v -- Enable logging
     * --help/-h -- Display this message
 
