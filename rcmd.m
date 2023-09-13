@@ -160,6 +160,47 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     return result;
 }
 
+/* s, t: two strings; ls, lt: their respective length */
+static int distance(const char *s, int ls, const char *t, int lt) {
+        int a, b, c;
+
+        /* if either string is empty, difference is inserting all chars
+         * from the other
+         */
+        if (!ls) return lt;
+        if (!lt) return ls;
+
+        /* if last letters are the same, the difference is whatever is
+         * required to edit the rest of the strings
+         */
+        if (s[ls - 1] == t[lt - 1])
+                return distance(s, ls - 1, t, lt - 1);
+
+        /* else try:
+         *      changing last letter of s to that of t; or
+         *      remove last letter of s; or
+         *      remove last letter of t,
+         * any of which is 1 edit plus editing the rest of the strings
+         */
+        a = distance(s, ls - 1, t, lt - 1);
+        b = distance(s, ls,     t, lt - 1);
+        c = distance(s, ls - 1, t, lt    );
+
+        if (a > b) a = b;
+        if (a > c) a = c;
+
+        return a + 1;
+}
+
+
+@implementation NSString (distance)
+-(NSUInteger)distanceToString:(NSString*)string {
+    return distance([self UTF8String], (int)[self length], [string UTF8String], (int)[string length]);
+}
+@end
+
+//! MARK: Interfaces
+
 @interface TextView : NSView {}
 @end
 
@@ -170,11 +211,26 @@ static unsigned int ConvertMacMod(unsigned int flags) {
 @property (nonatomic, strong) NSMutableString *labelText;
 @end
 
+@interface Window : NSObject {}
+@property BOOL isOnScreen;
+@property long parentPID;
+@property long windowNumber;
+@property (nonatomic, strong) NSString *parentName;
+@property NSRect bounds;
+@end
+
+@interface WindowManager : NSObject {}
+@property (nonatomic, strong) NSMutableArray *windows;
+@end
+
 @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate> {
     BOOL running;
 }
 @property (nonatomic, strong) TextWindow *textWindow;
+@property (nonatomic, strong) WindowManager *windowManager;
 @end
+
+//! MARK: Implementations
 
 @implementation TextView
 - (id)initWithFrame:(NSRect)frame {
@@ -193,6 +249,8 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     [path fill];
 }
 @end
+
+//! MARK: TextWindow Implementation
 
 @implementation TextWindow
 @synthesize labelText;
@@ -256,12 +314,172 @@ static unsigned int ConvertMacMod(unsigned int flags) {
 }
 @end
 
+//! MARK: Window Implementation
+
+@implementation Window
+-(id)initWithValues:(BOOL)isOnScreen PID:(long)parentPID parentName:(NSString*)parentName windowNumber:(long)windowNumber andBounds:(NSRect)bounds {
+    if (self = [super init]) {
+        _isOnScreen = isOnScreen;
+        _parentPID = parentPID;
+        _parentName = parentName;
+        _windowNumber = windowNumber;
+        _bounds = bounds;
+    }
+    return self;
+}
+
+-(id)init {
+    return [self initWithValues:NO
+                            PID:-1
+                     parentName:nil
+                   windowNumber:-1
+                      andBounds:NSMakeRect(0.f, 0.f, 0.f, 0.f)];
+}
+@end
+
+//! MARK: WindowManager Implementation
+
+static const char *blacklist[] = {
+    "WindowManager",
+    "TextInputMenuAgent",
+    "Notification Centre",
+    "Universal Control",
+    "Dock",
+    "Control Centre",
+    "Spotlight",
+    "Window Server",
+    "SystemUIServer",
+    "rcmd",
+    "com.apple.Safari.SandboxBroker"
+};
+
+@implementation WindowManager
+@synthesize windows;
+
+-(id)init {
+    if (self = [super init]) {
+        windows = [[NSMutableArray alloc] init];
+        [self refreshWindowList];
+    }
+    return self;
+}
+
+-(void)refreshWindowList {
+    [windows removeAllObjects];
+    CFArrayRef windowList = CGWindowListCopyWindowInfo(kCGWindowListExcludeDesktopElements, kCGNullWindowID);
+    for (int i = 0; i < CFArrayGetCount(windowList); i++) {
+        NSDictionary *dict = CFArrayGetValueAtIndex(windowList, i);
+        NSString *parentName = (NSString*)[dict objectForKey:@"kCGWindowOwnerName"];
+        BOOL skip = NO;
+        for (int i = 0; i < sizeof(blacklist) / sizeof(const char*); i++)
+            if (!strncmp(blacklist[i], [parentName UTF8String], [parentName length])) {
+                skip = YES;
+                break;
+            }
+        if (skip)
+            continue;
+        NSNumber *windowNumber = (NSNumber*)[dict objectForKey:@"kCGWindowNumber"];
+        NSDictionary *windowBounds = (NSDictionary*)[dict objectForKey:@"kCGWindowBounds"];
+        NSNumber *parentPID = (NSNumber*)[dict objectForKey:@"kCGWindowOwnerPID"];
+        [windows addObject:[[Window alloc] initWithValues:(BOOL)[dict objectForKey:@"kCGWindowIsOnscreen"]
+                                                      PID:[parentPID integerValue]
+                                               parentName:parentName
+                                             windowNumber:[windowNumber integerValue]
+                                                andBounds:NSMakeRect([(NSNumber*)[windowBounds objectForKey:@"X"] floatValue],
+                                                                     [(NSNumber*)[windowBounds objectForKey:@"Y"] floatValue],
+                                                                     [(NSNumber*)[windowBounds objectForKey:@"Width"] floatValue],
+                                                                     [(NSNumber*)[windowBounds objectForKey:@"Height"] floatValue])]];
+    }
+}
+
+-(NSArray*)findChildren:(long)parentPID {
+    NSMutableArray *result = [[NSMutableArray alloc] init];
+    for (int i = 0; i < [windows count]; i++) {
+        Window *window = [windows objectAtIndex:i];
+        if ([window parentPID] == parentPID)
+            [result addObject:window];
+    }
+    return [result count] ? result : nil;
+}
+
+-(NSArray*)uniqueParents {
+    NSMutableArray *parents = [[NSMutableArray alloc] init];
+    for (int i = 0; i < [windows count]; i++) {
+        Window *window = [windows objectAtIndex:i];
+        [parents addObject:[window parentName]];
+    }
+    return [parents count] ? [parents valueForKeyPath:[NSString stringWithFormat:@"@distinctUnionOfObjects.%@", @"self"]] : nil;
+}
+
+#define TOLERANCE 1
+
+-(NSArray*)searchChildren:(NSString*)test {
+    if (![windows count] || !test || ![test length])
+        return nil;
+    
+    NSString *testLower = [test lowercaseString];
+    NSArray *parents = [self uniqueParents];
+    NSMutableDictionary *results = [[NSMutableDictionary alloc] init];
+    NSString *closest = nil;
+    long lowestDistance = LONG_MAX;
+    for (NSString *parent in parents) {
+        NSString *test = parent;
+        if ([[test pathExtension] isEqualToString:@"app"])
+            test = [[test lastPathComponent] stringByDeletingPathExtension];
+        long d = [[test lowercaseString] distanceToString:testLower];
+        [results setObject:[NSNumber numberWithLong:d] forKey:parent];
+        if (d < lowestDistance) {
+            closest = parent;
+            lowestDistance = d;
+        }
+    }
+    
+    assert(closest);
+    
+    long mostSimilarities = LONG_MIN;
+    for (NSString *key in results) {
+        NSString *test = [key lowercaseString];
+        if ([[test pathExtension] isEqualToString:@"app"])
+            test = [[test lastPathComponent] stringByDeletingPathExtension];
+        NSNumber *value = [results objectForKey:key];
+        if ([value longValue] <= lowestDistance+TOLERANCE) {
+            long similiarities = 0;
+            for (int i = 0; i < [testLower length]; i++)
+                for (int j = 0; j < [test length]; j++)
+                    if ([test characterAtIndex:j] == [testLower characterAtIndex:i])
+                        similiarities++;
+            if (similiarities > mostSimilarities) {
+                closest = key;
+                mostSimilarities = similiarities;
+            }
+        }
+    }
+    assert(closest);
+    
+    long parentPID = 0;
+    for (int i = 0; i < [windows count]; i++) {
+        Window *window = [windows objectAtIndex:i];
+        if ([[window parentName] isEqualToString:closest]) {
+            parentPID = [window parentPID];
+            break;
+        }
+    }
+    assert(parentPID);
+    
+    return [self findChildren:parentPID];
+}
+@end
+
+//! MARK: AppDelegate Implementation
+
 @implementation AppDelegate : NSObject
 @synthesize textWindow;
+@synthesize windowManager;
 
 - (id)init {
     if (self = [super init]) {
         running = NO;
+        windowManager = [[WindowManager alloc] init];
     }
     return self;
 }
@@ -270,6 +488,7 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     if (!running) {
         running = YES;
         textWindow = [[TextWindow alloc] initWithDelegate:self];
+        [windowManager refreshWindowList];
     }
 }
 
@@ -299,6 +518,8 @@ static unsigned int ConvertMacMod(unsigned int flags) {
 }
 @end
 
+//! MARK: Globals
+
 static CFMachPortRef tap = nil;
 static AppDelegate *app = nil;
 static BOOL rCmdDown = NO;
@@ -323,8 +544,7 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                 BOOL resizeWindow = NO;
                 NSMutableString *oldText = [app getLabelText];
                 switch (keycode) {
-                    case INVALID_KEY:
-                        break;
+                    case INVALID_KEY: break;
                     case KEY_DELETE:
                     case KEY_BACKSPACE:
                         if (oldText && [oldText length]) {
@@ -339,7 +559,13 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                         break;
                     default:
                         resizeWindow = YES;
-                        [app setLabelText:[oldText stringByAppendingFormat:@"%c", keycode]];
+                        NSString *newText = [oldText stringByAppendingFormat:@"%c", keycode];
+                        [app setLabelText:newText];
+                        
+                        NSArray *windows = [[app windowManager] searchChildren:newText];
+                        assert(windows && [windows count]);
+                        Window *firstWindow = [windows objectAtIndex:0];
+                        NSLog(@"%@, %ld, %ld", [firstWindow parentName], [firstWindow parentPID], [firstWindow windowNumber]);
                         break;
                 }
                 
@@ -396,7 +622,7 @@ int main(int argc, const char *argv[]) {
     int error = CheckPrivileges();
     if (error)
         return error;
-
+    
     tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, 0, kCGEventMaskForAllEvents, EventCallback, NULL);
     CFRunLoopSourceRef loop = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0);
     CGEventTapEnable(tap, 1);
