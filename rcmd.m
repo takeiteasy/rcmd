@@ -3,6 +3,46 @@
 #include <sys/types.h>
 #include <Carbon/Carbon.h>
 #include <Cocoa/Cocoa.h>
+#include <getopt.h>
+
+static struct {
+    int enableManualMode;
+    int enableVerboseMode;
+} Args;
+
+#define LOGF(MSG, ...)              \
+do {                                \
+    if (Args.enableVerboseMode)     \
+        NSLog((MSG), __VA_ARGS__); \
+} while(0)
+
+#define LOG(MSG) LOGF(@"%@", (MSG))
+
+static struct option long_options[] = {
+    {"manual", no_argument, NULL, 'm'},
+    {"blacklist", required_argument, NULL, 'b'},
+    {"verbose", no_argument, NULL, 'v'},
+    {"help", no_argument, NULL, 'h'},
+    {NULL, 0, NULL, 0}
+};
+
+static void usage(void) {
+    puts("usage: rcmd [options]");
+    puts("");
+    puts("  Description:");
+    puts("    Press and hold the right command key then type what process you");
+    puts("    want to switch to. The text is fuzzy matched against all running");
+    puts("    processes, for example typing `xcd` will probably switch to Xcode.");
+    puts("");
+    puts("    By default the active window will update as you type, to disable");
+    puts("    this behaviour pass `--manual or -m` through the arguments. This");
+    puts("    will make it so you will to press the return (Enter) key to switch");
+    puts("");
+    puts("  Arguments:");
+    puts("    * --manual/-m -- Press return key to switch windows");
+    puts("    * --blacklist/-b -- Path to app blacklist");
+    puts("    * --help/-h -- Display this message");
+}
 
 typedef enum {
     INVALID_KEY,
@@ -160,6 +200,7 @@ static unsigned int ConvertMacMod(unsigned int flags) {
     return result;
 }
 
+// Source: https://rosettacode.org/wiki/Levenshtein_distance#C
 /* s, t: two strings; ls, lt: their respective length */
 static int distance(const char *s, int ls, const char *t, int lt) {
         int a, b, c;
@@ -192,10 +233,67 @@ static int distance(const char *s, int ls, const char *t, int lt) {
         return a + 1;
 }
 
+// Copyright 2020 Joshua J Baker. All rights reserved.
+// Use of this source code is governed by an MIT-style
+// license that can be found in the LICENSE file.
+//
+// match returns true if str matches pattern. This is a very
+// simple wildcard match where '*' matches on any number characters
+// and '?' matches on any one character.
+//
+// pattern:
+//   { term }
+// term:
+//      '*'         matches any sequence of non-Separator characters
+//      '?'         matches any single non-Separator character
+//      c           matches character c (c != '*', '?')
+//     '\\' c       matches character c
+static bool match(const char *pat, long plen, const char *str, long slen)  {
+    if (plen < 0)
+        plen = strlen(pat);
+    if (slen < 0)
+        slen = strlen(str);
+    while (plen > 0) {
+        if (pat[0] == '\\') {
+            if (plen == 1)
+                return false;
+            pat++;
+            plen--;
+        } else if (pat[0] == '*') {
+            if (plen == 1)
+                return true;
+            if (pat[1] == '*') {
+                pat++;
+                plen--;
+                continue;
+            }
+            if (match(pat+1, plen-1, str, slen))
+                return true;
+            if (slen == 0)
+                return false;
+            str++;
+            slen--;
+            continue;
+        }
+        if (slen == 0)
+            return false;
+        if (pat[0] != '?' && str[0] != pat[0])
+            return false;
+        pat++;
+        plen--;
+        str++;
+        slen--;
+    }
+    return slen == 0 && plen == 0;
+}
 
-@implementation NSString (distance)
+@implementation NSString (c)
 -(NSUInteger)distanceToString:(NSString*)string {
     return distance([self UTF8String], (int)[self length], [string UTF8String], (int)[string length]);
+}
+
+-(BOOL)wildcardMatchString:(NSString*)pattern {
+    return match([pattern UTF8String], -1, [self UTF8String], -1);
 }
 @end
 
@@ -219,7 +317,9 @@ static int distance(const char *s, int ls, const char *t, int lt) {
 @property NSRect bounds;
 @end
 
-@interface WindowManager : NSObject {}
+@interface WindowManager : NSObject {
+    NSArray *localBlacklist;
+}
 @property (nonatomic, strong) NSMutableArray *windows;
 @end
 
@@ -292,6 +392,10 @@ static int distance(const char *s, int ls, const char *t, int lt) {
     return self;
 }
 
+-(BOOL)canBecomeKeyWindow {
+    return YES;
+}
+
 -(void)resize {
     if (![labelText length]) {
         [self setFrame:NSMakeRect(0, 0, 0, 0)
@@ -339,7 +443,7 @@ static int distance(const char *s, int ls, const char *t, int lt) {
 
 //! MARK: WindowManager Implementation
 
-static const char *blacklist[] = {
+static const char *globalBlacklist[] = {
     "WindowManager",
     "TextInputMenuAgent",
     "Notification Centre",
@@ -359,9 +463,28 @@ static const char *blacklist[] = {
 -(id)init {
     if (self = [super init]) {
         windows = [[NSMutableArray alloc] init];
+        localBlacklist = nil;
         [self refreshWindowList];
     }
     return self;
+}
+
+-(BOOL)loadBlacklistFromPath:(NSString*)path {
+    NSError *error = nil;
+    NSString* fileContents = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&error];
+    if (error) {
+        NSLog(@"ERROR: Failed to read \"%@\" reading file: %@", path, error.localizedDescription);
+        return NO;
+    }
+    localBlacklist = [fileContents componentsSeparatedByString:@"\n"];
+    return localBlacklist && [localBlacklist count];
+}
+
+-(BOOL)checkAgainstBlacklist:(NSString*)test {
+    for (NSString *rule in localBlacklist)
+        if ([test wildcardMatchString:rule])
+            return YES;
+    return NO;
 }
 
 -(void)refreshWindowList {
@@ -371,11 +494,13 @@ static const char *blacklist[] = {
         NSDictionary *dict = CFArrayGetValueAtIndex(windowList, i);
         NSString *parentName = (NSString*)[dict objectForKey:@"kCGWindowOwnerName"];
         BOOL skip = NO;
-        for (int i = 0; i < sizeof(blacklist) / sizeof(const char*); i++)
-            if (!strncmp(blacklist[i], [parentName UTF8String], [parentName length])) {
+        for (int i = 0; i < sizeof(globalBlacklist) / sizeof(const char*); i++)
+            if (!strncmp(globalBlacklist[i], [parentName UTF8String], [parentName length])) {
                 skip = YES;
                 break;
             }
+        if (!skip)
+            skip = [self checkAgainstBlacklist:parentName];
         if (skip)
             continue;
         NSNumber *windowNumber = (NSNumber*)[dict objectForKey:@"kCGWindowNumber"];
@@ -417,6 +542,8 @@ static const char *blacklist[] = {
     if (![windows count] || !test || ![test length])
         return nil;
     
+    LOGF(@"* SEARCHING FOR \"%@\":", [test uppercaseString]);
+    
     NSString *testLower = [test lowercaseString];
     NSArray *parents = [self uniqueParents];
     NSMutableDictionary *results = [[NSMutableDictionary alloc] init];
@@ -447,6 +574,7 @@ static const char *blacklist[] = {
                 for (int j = 0; j < [test length]; j++)
                     if ([test characterAtIndex:j] == [testLower characterAtIndex:i])
                         similiarities++;
+            LOGF(@"* MATCH: \"%@\" (%ld)", key, similiarities);
             if (similiarities > mostSimilarities) {
                 closest = key;
                 mostSimilarities = similiarities;
@@ -472,6 +600,7 @@ static const char *blacklist[] = {
     NSArray *windows = [self searchChildren:test];
     assert(windows && [windows count]);
     Window *firstWindow = [windows objectAtIndex:0];
+    LOGF(@"* FOCUSING WINDOW: %@ (pid:%ld, wid:%ld)", [firstWindow parentName], [firstWindow parentPID], [firstWindow windowNumber]);
     
     pid_t pid = (pid_t)[firstWindow parentPID];
     AXUIElementRef axWindows = AXUIElementCreateApplication(pid);
@@ -500,6 +629,7 @@ static const char *blacklist[] = {
         running = YES;
         textWindow = [[TextWindow alloc] initWithDelegate:self];
         [windowManager refreshWindowList];
+        LOG(@"* RCMD IS ACTIVE");
     }
 }
 
@@ -507,6 +637,7 @@ static const char *blacklist[] = {
     if (running) {
         running = NO;
         [textWindow close];
+        LOG(@"* RCMD STOPPED");
     }
 }
 
@@ -560,19 +691,27 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
                     case KEY_BACKSPACE:
                         if (oldText && [oldText length]) {
                             resizeWindow = YES;
-                            [app setLabelText:[oldText substringWithRange:NSMakeRange(0, [oldText length] - 1)]];
+                            NSString *newText = [oldText substringWithRange:NSMakeRange(0, [oldText length] - 1)];
+                            [app setLabelText:newText];
+                            if (!Args.enableManualMode)
+                                [[app windowManager] focusWindow:newText];
                         }
                         break;
                     case KEY_ESCAPE:
+                        [oldText setString:@""];
                         [app setLabelText:@""];
+                        LOG(@"* RCMD CANCELLED (ESC KEY)");
                     case KEY_RETURN:
+                        if (Args.enableManualMode && [oldText length])
+                            [[app windowManager] focusWindow:oldText];
                         [app end];
                         break;
                     default:
                         resizeWindow = YES;
                         NSString *newText = [oldText stringByAppendingFormat:@"%c", keycode];
                         [app setLabelText:newText];
-                        [[app windowManager] focusWindow:newText];
+                        if (!Args.enableManualMode)
+                            [[app windowManager] focusWindow:newText];
                         break;
                 }
                 
@@ -606,7 +745,7 @@ static CGEventRef EventCallback(CGEventTapProxy proxy, CGEventType type, CGEvent
 
 static int CheckPrivileges(void) {
     if (getuid() || geteuid()) {
-        fprintf(stderr, "ERROR: Run as root\n");
+        fprintf(stderr, "ERROR: Process requires root permissions\n");
         return 1;
     }
     
@@ -619,24 +758,57 @@ static int CheckPrivileges(void) {
     int result = AXIsProcessTrustedWithOptions(options);
     CFRelease(options);
     if (!result) {
-        fprintf(stderr, "ERROR: Requires accessibility permissions\n");
+        fprintf(stderr, "ERROR: Process requires accessibility permissions\n");
         return 2;
     }
     return 0;
 }
 
-int main(int argc, const char *argv[]) {
+int main(int argc, char *argv[]) {
     int error = CheckPrivileges();
     if (error)
         return error;
     
+    int opt;
+    extern int optind;
+    extern char* optarg;
+    extern int optopt;
+    const char *blacklistPath = NULL;
+    while ((opt = getopt_long(argc, argv, "hvmb:", long_options, NULL)) != -1) {
+        switch (opt) {
+            case 'm':
+                Args.enableManualMode = YES;
+                break;
+            case 'b':
+                blacklistPath = optarg;
+                break;
+            case 'v':
+                Args.enableVerboseMode = YES;
+                break;
+            case 'h':
+                usage();
+                return 0;
+            case '?':
+                fprintf(stderr, "ERROR: Unknown argument \"-%c\"\n", optopt);
+                usage();
+                return 3;
+        }
+    }
+    
     tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, 0, kCGEventMaskForAllEvents, EventCallback, NULL);
+    assert(tap);
+    LOG(@"* EVENT TAP ENABLE");
     CFRunLoopSourceRef loop = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0);
     CGEventTapEnable(tap, 1);
     CFRunLoopAddSource(CFRunLoopGetCurrent(), loop, kCFRunLoopCommonModes);
     
     @autoreleasepool {
         app = [AppDelegate new];
+        LOG(@"* APP DELEGATE CREATED");
+        if (blacklistPath) {
+            LOGF(@"* LOADING BLACK LIST FROM \"%s\"", blacklistPath);
+            LOGF(@"* %s LOADING BLACKLIST AT \"%s\"", ![[app windowManager] loadBlacklistFromPath:@(blacklistPath)] ? "ERROR" : "SUCCESS", blacklistPath);
+        }
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
         [NSApp setDelegate:app];
