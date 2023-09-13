@@ -1,6 +1,6 @@
 # rcmd
 
-A simple MacOS application switcher, inspired by [rcmd](https://lowtechguys.com/rcmd/). I didn't want to spend $13 so I made a small app with a similar concept. **NOTE**: This code has nothing to do with the original rcmd app.
+A simple MacOS application switcher, inspired by [rcmd](https://lowtechguys.com/rcmd/). I didn't want to spend $13 so I made a small app with a similar concept. **NOTE**: Neither I nor this repo have anything to do with the original rcmd app.
 
 ## Usage
 
@@ -19,6 +19,7 @@ usage: rcmd [options]
   Arguments:
     * --manual/-m -- Press return key to switch windows
     * --blacklist/-b -- Path to app blacklist
+    * --verbose/-v -- Enable logging
     * --help/-h -- Display this message
 
 ```
