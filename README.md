@@ -35,8 +35,8 @@ usage: rcmd [options]
                     in hex (#FFFFFF) and rgb (rgb(255,255,255) formats.
                     (default: rgb(0,0,0)
     * --opacity/-o -- Set the opacity of the window (default: 0.5)
-    * --lua-l -- Path to Lua file to run on event. NOTE: This requires
-                 rcmd to be build with -DRCMD_ENABLE_LUA
+    * --lua/-l -- Path to Lua file to run on event. NOTE: This requires
+                  rcmd to be build with -DRCMD_ENABLE_LUA
     * --verbose/-b -- Enable logging
     * --help/-h -- Display this message
 ```

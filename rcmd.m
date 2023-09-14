@@ -158,8 +158,8 @@ static void usage(void) {
     puts("                    in hex (#FFFFFF) and rgb (rgb(255,255,255) formats.");
     puts("                    (default: rgb(0,0,0)");
     puts("    * --opacity/-o -- Set the opacity of the window (default: 0.5)");
-    puts("    * --lua-l -- Path to Lua file to run on event. NOTE: This requires");
-    puts("                 rcmd to be build with -DRCMD_ENABLE_LUA");
+    puts("    * --lua/-l -- Path to Lua file to run on event. NOTE: This requires");
+    puts("                  rcmd to be build with -DRCMD_ENABLE_LUA");
     puts("    * --verbose/-b -- Enable logging");
     puts("    * --help/-h -- Display this message");
 }
