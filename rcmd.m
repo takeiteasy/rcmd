@@ -9,6 +9,39 @@
 #define DEFAULT_TOLERANCE 1
 #endif
 
+#if !defined(DEFAULT_WINDOW_PADDING)
+#define DEFAULT_WINDOW_PADDING 10
+#endif
+
+#if !defined(DEFAULT_EDGE_PADDING)
+#define DEFAULT_EDGE_PADDING 10
+#endif
+
+#if !defined(DEFAULT_FONT_SIZE)
+#define DEFAULT_FONT_SIZE 72
+#endif
+
+#if !defined(DEFAULT_OPACITY)
+#define DEFAULT_OPACITY .75f
+#endif
+
+#define POSITIONS                  \
+    X(Top, "top")                  \
+    X(TopLeft, "top-left")         \
+    X(TopRight, "top-right")       \
+    X(Bottom, "bottom")            \
+    X(BottomLeft, "bottom-left")   \
+    X(BottomRight, "bottom-right") \
+    X(Left, "left")                \
+    X(Right, "right")
+
+typedef enum {
+    Centre = 0,
+#define X(VAR, TXT) VAR,
+    POSITIONS
+#undef X
+} Position;
+
 static struct {
     BOOL enableManualMode;
     BOOL enableVerboseMode;
@@ -18,6 +51,15 @@ static struct {
     BOOL disableText;
     BOOL disableSwitching;
     NSString *runScript;
+    Position windowPosition;
+    int windowPadding;
+    int screenEdgePadding;
+    const char *fontName;
+    int fontSize;
+    struct {
+        float r, g, b;
+    } windowColor;
+    float opacity;
 } Args = {
     .enableManualMode = NO,
     .enableVerboseMode = NO,
@@ -26,8 +68,25 @@ static struct {
     .disableMenuBar = NO,
     .disableText = NO,
     .disableSwitching = NO,
-    .runScript = nil
+    .runScript = nil,
+    .windowPosition = Centre,
+    .windowPadding = DEFAULT_WINDOW_PADDING,
+    .screenEdgePadding = DEFAULT_EDGE_PADDING,
+    .fontName = NULL,
+    .fontSize = DEFAULT_FONT_SIZE,
+    .windowColor = {
+        .r = 0.f,
+        .g = 0.f,
+        .b = 0.f
+    },
+    .opacity = DEFAULT_OPACITY
 };
+
+static void SetWindowColor(unsigned char r, unsigned char g, unsigned char b) {
+    Args.windowColor.r = (float)r / 255.f;
+    Args.windowColor.g = (float)g / 255.f;
+    Args.windowColor.b = (float)b / 255.f;
+}
 
 #define LOGF(MSG, ...)              \
 do {                                \
@@ -46,6 +105,11 @@ static struct option long_options[] = {
     {"no-text", no_argument, NULL, 't'},
     {"no-switch", no_argument, NULL, 's'},
     {"applescript", required_argument, NULL, 'a'},
+    {"font", required_argument, NULL, 'f'},
+    {"font-size", required_argument, NULL, 'F'},
+    {"position", required_argument, NULL, 'p'},
+    {"color", required_argument, NULL, 'c'},
+    {"opacity", required_argument, NULL, 'o'},
     {"verbose", no_argument, NULL, 'v'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}
@@ -68,11 +132,20 @@ static void usage(void) {
     puts("    * --blacklist/-b -- Path to app blacklist");
     puts("    * --tolerance/-T -- Fuzzy matching tolerance (default: 1)");
     puts("    * --no-dynamic-blacklist/-d -- Disable dynamically blacklisting apps");
-    puts("                                   with no windows on screen.");
+    puts("                                   with no windows on screen");
     puts("    * --no-menubar/-x -- Disable menubar icon");
     puts("    * --no-text/-t -- Disable buffer text window");
     puts("    * --no-swtich/-s -- Disable application switching");
     puts("    * --applescript/-a -- Path to AppleScript file to run on event");
+    puts("    * --font/-f -- Name of font to use");
+    puts("    * --font-size/-F -- Set size of font (default: 72)");
+    puts("    * --position/-p -- Set the window position, options: top, top-left,");
+    puts("                       top-right, bottom, bottom-left, bottom-right,");
+    puts("                       left, and right (default: centre)");
+    puts("    * --color/-c -- Set the background color of he window. Accepts colors");
+    puts("                    in hex (#FFFFFF) and rgb (rgb(255,255,255) formats.");
+    puts("                    (default: rgb(0,0,0)");
+    puts("    * --opacity/-o -- Set the opacity of the window (default: 0.5)");
     puts("    * --verbose/-b -- Enable logging");
     puts("    * --help/-h -- Display this message");
 }
@@ -378,10 +451,10 @@ static bool match(const char *pat, long plen, const char *str, long slen)  {
     NSBezierPath* path = [NSBezierPath bezierPathWithRoundedRect:frame
                                                          xRadius:6.0
                                                          yRadius:6.0];
-    [[NSColor colorWithRed:0
-                     green:0
-                      blue:0
-                     alpha:.75] set];
+    [[NSColor colorWithRed:Args.windowColor.r
+                     green:Args.windowColor.g
+                      blue:Args.windowColor.b
+                     alpha:Args.opacity] set];
     [path fill];
 }
 @end
@@ -406,7 +479,7 @@ static bool match(const char *pat, long plen, const char *str, long slen)  {
         [label setEditable:NO];
         [label setSelectable:NO];
         [label setAlignment:NSTextAlignmentCenter];
-        [label setFont:[NSFont systemFontOfSize:72]];
+        [label setFont:Args.fontName ? [NSFont fontWithName:@(Args.fontName) size:Args.fontSize] : [NSFont systemFontOfSize:Args.fontSize]];
         [label setTextColor:[NSColor whiteColor]];
         [[label cell] setBackgroundStyle:NSBackgroundStyleRaised];
         [label sizeToFit];
@@ -441,10 +514,44 @@ static bool match(const char *pat, long plen, const char *str, long slen)  {
     } else {
         [label setStringValue:labelText];
         [label sizeToFit];
-        int x = ([[NSScreen mainScreen] visibleFrame].origin.x + [[NSScreen mainScreen] visibleFrame].size.width / 2) - ([label frame].size.width / 2);
-        int y = ([[NSScreen mainScreen] visibleFrame].origin.y + [[NSScreen mainScreen] visibleFrame].size.height / 2) - ([label frame].size.height / 2);
-        int w = [label frame].size.width + 10;
-        int h = [label frame].size.height + 10;
+        
+        int x = 0, y = 0;
+        switch (Args.windowPosition) {
+            case Bottom:
+            case Top:
+            case Centre:
+                x = ([[NSScreen mainScreen] visibleFrame].origin.x + [[NSScreen mainScreen] visibleFrame].size.width / 2) - ([label frame].size.width / 2);
+                break;
+            case Left:
+            case TopLeft:
+            case BottomLeft:
+                x = [[NSScreen mainScreen] visibleFrame].origin.x + Args.screenEdgePadding;
+                break;
+            case TopRight:
+            case BottomRight:
+            case Right:
+                x = ([[NSScreen mainScreen] visibleFrame].origin.x + [[NSScreen mainScreen] visibleFrame].size.width) - ([label frame].size.width + Args.screenEdgePadding);
+                break;
+        }
+        switch (Args.windowPosition) {
+            case Left:
+            case Right:
+            case Centre:
+                y = ([[NSScreen mainScreen] visibleFrame].origin.y + [[NSScreen mainScreen] visibleFrame].size.height / 2) - ([label frame].size.height / 2);
+                break;
+            case Top:
+            case TopLeft:
+            case TopRight:
+                y = ([[NSScreen mainScreen] visibleFrame].origin.y + [[NSScreen mainScreen] visibleFrame].size.height) - ([label frame].size.height + Args.screenEdgePadding);
+                break;
+            case Bottom:
+            case BottomLeft:
+            case BottomRight:
+                y = [[NSScreen mainScreen] visibleFrame].origin.y + Args.screenEdgePadding;
+                break;
+        }
+        int w = [label frame].size.width + Args.windowPadding;
+        int h = [label frame].size.height + Args.windowPadding;
         [self setFrame:NSMakeRect(x, y, w, h)
                display:YES];
         [view setFrame:NSMakeRect(0, 0, w, h)];
@@ -863,7 +970,7 @@ int main(int argc, char *argv[]) {
     extern char* optarg;
     extern int optopt;
     const char *blacklistPath = NULL;
-    while ((opt = getopt_long(argc, argv, "hvdTtsxma:b:", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "hvdTtsxma:b:f:F:p:c:o:", long_options, NULL)) != -1) {
         switch (opt) {
             case 'm':
                 Args.enableManualMode = YES;
@@ -901,6 +1008,39 @@ int main(int argc, char *argv[]) {
                 }
                 break;
             }
+            case 'f':
+                Args.fontName = optarg;
+                break;
+            case 'F':
+                Args.fontSize = atoi(optarg);
+                break;
+            case 'p': {
+                long s = strlen(optarg);
+#define X(VAR, TXT)             \
+if (!strncmp((TXT), optarg, s)) \
+    Args.windowPosition = (VAR);
+                POSITIONS
+#undef X
+                break;
+            }
+            case 'c':
+                if (optarg[0] == '#') {
+                    int _r, _g, _b;
+                    sscanf(optarg, "%02x%02x%02x", &_r, &_g, &_b);
+                    SetWindowColor(_r, _g, _b);
+                } else if (!strncmp(optarg, "rgb", 3)) {
+                    int _r, _g, _b;
+                    sscanf(optarg, "rgb(%d,%d,%d)", &_r, &_g, &_b);
+                    SetWindowColor(_r, _g, _b);
+                } else {
+                    fprintf(stderr, "ERROR: Invalid color format\n");
+                    usage();
+                    return 6;
+                }
+                break;
+            case 'o':
+                Args.opacity = atof(optarg);
+                break;
             case 'v':
                 Args.enableVerboseMode = YES;
                 break;

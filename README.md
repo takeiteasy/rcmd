@@ -21,11 +21,20 @@ usage: rcmd [options]
     * --blacklist/-b -- Path to app blacklist
     * --tolerance/-T -- Fuzzy matching tolerance (default: 1)
     * --no-dynamic-blacklist/-d -- Disable dynamically blacklisting apps
-                                   with no windows on screen.
+                                   with no windows on screen
     * --no-menubar/-x -- Disable menubar icon
     * --no-text/-t -- Disable buffer text window
     * --no-swtich/-s -- Disable application switching
     * --applescript/-a -- Path to AppleScript file to run on event
+    * --font/-f -- Name of font to use
+    * --font-size/-F -- Set size of font (default: 72)
+    * --position/-p -- Set the window position, options: top, top-left,
+                       top-right, bottom, bottom-left, bottom-right,
+                       left, and right (default: centre)
+    * --color/-c -- Set the background color of he window. Accepts colors
+                    in hex (#FFFFFF) and rgb (rgb(255,255,255) formats.
+                    (default: rgb(0,0,0)
+    * --opacity/-o -- Set the opacity of the window (default: 0.5)
     * --verbose/-b -- Enable logging
     * --help/-h -- Display this message
 ```
