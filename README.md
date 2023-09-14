@@ -19,9 +19,11 @@ usage: rcmd [options]
   Arguments:
     * --manual/-m -- Press return key to switch windows
     * --blacklist/-b -- Path to app blacklist
-    * --tolerance/-t -- Fuzzy matching tolerance (default: 1)
+    * --tolerance/-T -- Fuzzy matching tolerance (default: 1)
     * --no-dynamic-blacklist/-d -- Disable dynamically blacklisting apps
                                    with no windows on screen.
+    * --no-menubar/-x -- Disable menubar icon
+    * --no-text/-t -- Disable buffer text window
     * --verbose/-b -- Enable logging
     * --help/-h -- Display this message
 ```

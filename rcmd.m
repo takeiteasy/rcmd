@@ -14,11 +14,15 @@ static struct {
     BOOL enableVerboseMode;
     int matchTolerance;
     BOOL disableDynamicBlacklist;
+    BOOL disableMenuBar;
+    BOOL disableText;
 } Args = {
     .enableManualMode = NO,
     .enableVerboseMode = NO,
     .matchTolerance = DEFAULT_TOLERANCE,
-    .disableDynamicBlacklist = NO
+    .disableDynamicBlacklist = NO,
+    .disableMenuBar = YES,
+    .disableText = NO
 };
 
 #define LOGF(MSG, ...)              \
@@ -32,8 +36,10 @@ do {                                \
 static struct option long_options[] = {
     {"manual", no_argument, NULL, 'm'},
     {"blacklist", required_argument, NULL, 'b'},
-    {"tolerance", required_argument, NULL, 't'},
+    {"tolerance", required_argument, NULL, 'T'},
     {"no-dynamic-blacklist", no_argument, NULL, 'd'},
+    {"no-menubar", no_argument, NULL, 'x'},
+    {"no-text", no_argument, NULL, 't'},
     {"verbose", no_argument, NULL, 'v'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}
@@ -54,9 +60,11 @@ static void usage(void) {
     puts("  Arguments:");
     puts("    * --manual/-m -- Press return key to switch windows");
     puts("    * --blacklist/-b -- Path to app blacklist");
-    puts("    * --tolerance/-t -- Fuzzy matching tolerance (default: 1)");
+    puts("    * --tolerance/-T -- Fuzzy matching tolerance (default: 1)");
     puts("    * --no-dynamic-blacklist/-d -- Disable dynamically blacklisting apps");
     puts("                                   with no windows on screen.");
+    puts("    * --no-menubar/-x -- Disable menubar icon");
+    puts("    * --no-text/-t -- Disable buffer text window");
     puts("    * --verbose/-b -- Enable logging");
     puts("    * --help/-h -- Display this message");
 }
@@ -346,6 +354,7 @@ static bool match(const char *pat, long plen, const char *str, long slen)  {
 }
 @property (nonatomic, strong) TextWindow *textWindow;
 @property (nonatomic, strong) WindowManager *windowManager;
+@property (nonatomic, strong) NSStatusItem *statusBar;
 @end
 
 //! MARK: Implementations
@@ -651,7 +660,7 @@ static const char *globalBlacklist[] = {
 
 //! MARK: AppDelegate Implementation
 
-@implementation AppDelegate : NSObject
+@implementation AppDelegate
 @synthesize textWindow;
 @synthesize windowManager;
 
@@ -661,6 +670,24 @@ static const char *globalBlacklist[] = {
         windowManager = [[WindowManager alloc] init];
     }
     return self;
+}
+
+-(void)applicationDidFinishLaunching:(NSNotification *)notification {
+    if (Args.disableMenuBar)
+        return;
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(terminate:)
+                                                 name:NSApplicationWillTerminateNotification
+                                               object:nil];
+    _statusBar = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
+    _statusBar.button.image = [NSImage imageWithSystemSymbolName:@"command"
+                                       accessibilityDescription:nil];
+#if __MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_4
+    statusBar.highlightMode = YES;
+#endif
+    NSMenu *menu = [[NSMenu alloc] init];
+    [menu addItemWithTitle:@"Quit" action:@selector(terminate:) keyEquivalent:@"q"];
+    _statusBar.menu = menu;
 }
 
 -(void)begin {
@@ -694,7 +721,7 @@ static const char *globalBlacklist[] = {
 }
 
 -(void)resizeWindow {
-    if (running)
+    if (running && !Args.disableText)
         [textWindow resize];
 }
 @end
@@ -804,7 +831,7 @@ int main(int argc, char *argv[]) {
     extern char* optarg;
     extern int optopt;
     const char *blacklistPath = NULL;
-    while ((opt = getopt_long(argc, argv, "hvdmb:", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "hvdxmb:", long_options, NULL)) != -1) {
         switch (opt) {
             case 'm':
                 Args.enableManualMode = YES;
@@ -812,11 +839,17 @@ int main(int argc, char *argv[]) {
             case 'b':
                 blacklistPath = optarg;
                 break;
-            case 't':
+            case 'T':
                 Args.matchTolerance = atoi(optarg);
                 break;
             case 'd':
                 Args.disableDynamicBlacklist = YES;
+                break;
+            case 'x':
+                Args.disableMenuBar = YES;
+                break;
+            case 't':
+                Args.disableText = YES;
                 break;
             case 'v':
                 Args.enableVerboseMode = YES;
