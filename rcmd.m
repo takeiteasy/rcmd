@@ -4,6 +4,11 @@
 #include <Carbon/Carbon.h>
 #include <Cocoa/Cocoa.h>
 #include <getopt.h>
+#if defined(RCMD_ENABLE_LUA)
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
+#endif
 
 #if !defined(DEFAULT_TOLERANCE)
 #define DEFAULT_TOLERANCE 1
@@ -43,6 +48,9 @@ typedef enum {
 } Position;
 
 static struct {
+#if defined(RCMD_ENABLE_LUA)
+    lua_State *luaState;
+#endif
     BOOL enableManualMode;
     BOOL enableVerboseMode;
     int matchTolerance;
@@ -61,6 +69,9 @@ static struct {
     } windowColor;
     float opacity;
 } Args = {
+#if defined(RCMD_ENABLE_LUA)
+    .luaState = NULL,
+#endif
     .enableManualMode = NO,
     .enableVerboseMode = NO,
     .matchTolerance = DEFAULT_TOLERANCE,
@@ -88,9 +99,9 @@ static void SetWindowColor(unsigned char r, unsigned char g, unsigned char b) {
     Args.windowColor.b = (float)b / 255.f;
 }
 
-#define LOGF(MSG, ...)              \
-do {                                \
-    if (Args.enableVerboseMode)     \
+#define LOGF(MSG, ...)             \
+do {                               \
+    if (Args.enableVerboseMode)    \
         NSLog((MSG), __VA_ARGS__); \
 } while(0)
 
@@ -110,6 +121,7 @@ static struct option long_options[] = {
     {"position", required_argument, NULL, 'p'},
     {"color", required_argument, NULL, 'c'},
     {"opacity", required_argument, NULL, 'o'},
+    {"lua", required_argument, NULL, 'l'},
     {"verbose", no_argument, NULL, 'v'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}
@@ -146,6 +158,8 @@ static void usage(void) {
     puts("                    in hex (#FFFFFF) and rgb (rgb(255,255,255) formats.");
     puts("                    (default: rgb(0,0,0)");
     puts("    * --opacity/-o -- Set the opacity of the window (default: 0.5)");
+    puts("    * --lua-l -- Path to Lua file to run on event. NOTE: This requires");
+    puts("                 rcmd to be build with -DRCMD_ENABLE_LUA");
     puts("    * --verbose/-b -- Enable logging");
     puts("    * --help/-h -- Display this message");
 }
@@ -402,6 +416,66 @@ static bool match(const char *pat, long plen, const char *str, long slen)  {
     return match([pattern UTF8String], -1, [self UTF8String], -1);
 }
 @end
+
+#if defined(RCMD_ENABLE_LUA)
+static void LuaDumpTable(lua_State* L, int idx) {
+    printf("--------------- LUA TABLE DUMP ---------------\n");
+    lua_pushvalue(L, idx);
+    lua_pushnil(L);
+    int t, j = (idx < 0 ? -idx : idx), i = idx - 1;
+    const char *key = NULL, *tmp = NULL;
+    while ((t = lua_next(L, i))) {
+        lua_pushvalue(L, idx - 1);
+        key = lua_tostring(L, idx);
+        switch (lua_type(L, idx - 1)) {
+            case LUA_TSTRING:
+                printf("%s (string, %d) => `%s'\n", key, j, lua_tostring(L, i));
+                break;
+            case LUA_TBOOLEAN:
+                printf("%s (boolean, %d) => %s\n", key, j, lua_toboolean(L, i) ? "true" : "false");
+                break;
+            case LUA_TNUMBER:
+                printf("%s (integer, %d) => %g\n", key, j, lua_tonumber(L, i));
+                break;
+            default:
+                tmp = lua_typename(L, i);
+                printf("%s (%s, %d) => %s\n", key, tmp, j, tmp);
+                if (!strncmp(lua_typename(L, t), "table", 5))
+                    LuaDumpTable(L, i);
+                break;
+        }
+        lua_pop(L, 2);
+    }
+    lua_pop(L, 1);
+    printf("--------------- END TABLE DUMP ---------------\n");
+}
+
+static int LuaDumpStack(lua_State* L) {
+    int t, i = lua_gettop(L);
+    const char* tmp = NULL;
+    printf("--------------- LUA STACK DUMP ---------------\n");
+    for (; i; --i) {
+        
+        switch ((t = lua_type(L, i))) {
+            case LUA_TSTRING:
+                printf("%d (string): `%s'\n", i, lua_tostring(L, i));
+                break;
+            case LUA_TBOOLEAN:
+                printf("%d (boolean): %s\n", i, lua_toboolean(L, i) ? "true" : "false");
+                break;
+            case LUA_TNUMBER:
+                printf("%d (integer): %g\n",  i, lua_tonumber(L, i));
+                break;
+            default:
+                tmp = lua_typename(L, t);
+                printf("%d (%s): %s\n", i, lua_typename(L, t), tmp);
+                break;
+        }
+    }
+    printf("--------------- END STACK DUMP ---------------\n");
+    return 0;
+}
+#endif
 
 //! MARK: Interfaces
 
@@ -763,6 +837,18 @@ static const char *globalBlacklist[] = {
             NSLog(@"ERROR: Failed to execute AppleScript -- %@", osaError);
     }
     
+#if defined(RCMD_ENABLE_LUA)
+    if (Args.luaState) {
+        lua_getglobal(L, "on_rcmd_event");
+        lua_pushlstring(Args.luaState, [test UTF8String], [test length]);
+        if (lua_pcall(Args.luaState, 1, 0, 0)) {
+            fprintf(stderr, "LUA ERROR: %s", lua_tostring(Args.luaState, -1));
+            LuaDumpStack(Args.luaState);
+        }
+        lua_pop(L, 1);
+    }
+#endif
+    
     if (Args.disableSwitching)
         return;
     NSArray *results = [self findBestMatch:test];
@@ -829,7 +915,16 @@ static const char *globalBlacklist[] = {
         running = YES;
         textWindow = [[TextWindow alloc] initWithDelegate:self];
         [windowManager refreshWindowList];
-        LOG(@"* RCMD IS ACTIVE");
+#if defined(RCMD_ENABLE_LUA)
+        if (Args.luaState) {
+            lua_getglobal(L, "on_rcmd_pressed");
+            if (!lua_isfunction(Args.luaState, -1) || lua_pcall(Args.luaState, 0, 0, 0)) {
+                fprintf(stderr, "LUA ERROR: %s", lua_tostring(Args.luaState, -1));
+                LuaDumpStack(Args.luaState);
+            }
+        }
+#endif
+        LOG(@"* RCMD ACTIVATED");
     }
 }
 
@@ -837,6 +932,15 @@ static const char *globalBlacklist[] = {
     if (running) {
         running = NO;
         [textWindow close];
+#if defined(RCMD_ENABLE_LUA)
+        if (Args.luaState) {
+            lua_getglobal(L, "on_rcmd_released");
+            if (!lua_isfunction(Args.luaState, -1) || lua_pcall(Args.luaState, 0, 0, 0)) {
+                fprintf(stderr, "LUA ERROR: %s", lua_tostring(Args.luaState, -1));
+                LuaDumpStack(Args.luaState);
+            }
+        }
+#endif
         LOG(@"* RCMD STOPPED");
     }
 }
@@ -970,7 +1074,7 @@ int main(int argc, char *argv[]) {
     extern char* optarg;
     extern int optopt;
     const char *blacklistPath = NULL;
-    while ((opt = getopt_long(argc, argv, "hvdTtsxma:b:f:F:p:c:o:", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "hvdTtsxma:b:f:F:p:c:o:l:", long_options, NULL)) != -1) {
         switch (opt) {
             case 'm':
                 Args.enableManualMode = YES;
@@ -1041,6 +1145,22 @@ if (!strncmp((TXT), optarg, s)) \
             case 'o':
                 Args.opacity = atof(optarg);
                 break;
+            case 'l': {
+#if defined(RCMD_ENABLE_LUA)
+                Args.luaState = luaL_newstate();
+                luaL_openlibs(Args.luaState);
+                int result = luaL_dofile(Args.luaState, optarg);
+                if (result) {
+                    fprintf(stderr, "LUA ERROR: %s\n", lua_tostring(L, -1));
+                    LuaDumpStack(Args.luaState);
+                    return 7;
+                }
+#else
+                fprintf(stderr, "ERROR: Cannot use --lua/-l, rcmd needs to be build with -DRCMD_ENABLE_LUA\n");
+                return 8;
+#endif
+                break;
+            }
             case 'v':
                 Args.enableVerboseMode = YES;
                 break;

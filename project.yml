@@ -22,6 +22,8 @@ targets:
         type: folder
       - path: README.md
         type: folder
+      - path: example.lua
+        type: folder
     dependencies:
         - sdk: Carbon.framework
         - sdk: Cocoa.framework
