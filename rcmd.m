@@ -16,13 +16,17 @@ static struct {
     BOOL disableDynamicBlacklist;
     BOOL disableMenuBar;
     BOOL disableText;
+    BOOL disableSwitching;
+    NSString *runScript;
 } Args = {
     .enableManualMode = NO,
     .enableVerboseMode = NO,
     .matchTolerance = DEFAULT_TOLERANCE,
     .disableDynamicBlacklist = NO,
-    .disableMenuBar = YES,
-    .disableText = NO
+    .disableMenuBar = NO,
+    .disableText = NO,
+    .disableSwitching = NO,
+    .runScript = nil
 };
 
 #define LOGF(MSG, ...)              \
@@ -40,6 +44,8 @@ static struct option long_options[] = {
     {"no-dynamic-blacklist", no_argument, NULL, 'd'},
     {"no-menubar", no_argument, NULL, 'x'},
     {"no-text", no_argument, NULL, 't'},
+    {"no-switch", no_argument, NULL, 's'},
+    {"applescript", required_argument, NULL, 'a'},
     {"verbose", no_argument, NULL, 'v'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}
@@ -65,6 +71,8 @@ static void usage(void) {
     puts("                                   with no windows on screen.");
     puts("    * --no-menubar/-x -- Disable menubar icon");
     puts("    * --no-text/-t -- Disable buffer text window");
+    puts("    * --no-swtich/-s -- Disable application switching");
+    puts("    * --applescript/-a -- Path to AppleScript file to run on event");
     puts("    * --verbose/-b -- Enable logging");
     puts("    * --help/-h -- Display this message");
 }
@@ -355,6 +363,7 @@ static bool match(const char *pat, long plen, const char *str, long slen)  {
 @property (nonatomic, strong) TextWindow *textWindow;
 @property (nonatomic, strong) WindowManager *windowManager;
 @property (nonatomic, strong) NSStatusItem *statusBar;
+@property (nonatomic, strong) NSApplication *applescript;
 @end
 
 //! MARK: Implementations
@@ -513,6 +522,7 @@ static const char *globalBlacklist[] = {
         for (NSString *rule in dynamicBlacklist)
             if ([test isEqualToString:rule])
                 return YES;
+    
     if (!localBlacklist)
         return NO;
     for (NSString *rule in localBlacklist)
@@ -522,6 +532,8 @@ static const char *globalBlacklist[] = {
 }
 
 -(void)refreshWindowList {
+    if (Args.disableSwitching)
+        return;
     [windows removeAllObjects];
     CFArrayRef windowList = CGWindowListCopyWindowInfo(kCGWindowListExcludeDesktopElements, kCGNullWindowID);
     for (int i = 0; i < CFArrayGetCount(windowList); i++) {
@@ -537,6 +549,7 @@ static const char *globalBlacklist[] = {
             skip = [self checkAgainstBlacklists:parentName];
         if (skip)
             continue;
+        
         NSNumber *windowNumber = (NSNumber*)[dict objectForKey:@"kCGWindowNumber"];
         NSDictionary *windowBounds = (NSDictionary*)[dict objectForKey:@"kCGWindowBounds"];
         NSNumber *parentPID = (NSNumber*)[dict objectForKey:@"kCGWindowOwnerPID"];
@@ -584,9 +597,11 @@ static const char *globalBlacklist[] = {
     for (NSString *parent in parents) {
         if ([self checkAgainstBlacklists:parent])
             continue;
+        
         NSString *test = parent;
         if ([[test pathExtension] isEqualToString:@"app"])
             test = [[test lastPathComponent] stringByDeletingPathExtension];
+        
         long d = [[test lowercaseString] distanceToString:testLower];
         [results setObject:[NSNumber numberWithLong:d] forKey:parent];
         if (d < lowestDistance) {
@@ -603,11 +618,13 @@ static const char *globalBlacklist[] = {
             NSString *test = [key lowercaseString];
             if ([[test pathExtension] isEqualToString:@"app"])
                 test = [[test lastPathComponent] stringByDeletingPathExtension];
+            
             long similiarities = 0;
             for (int i = 0; i < [testLower length]; i++)
                 for (int j = 0; j < [test length]; j++)
                     if ([test characterAtIndex:j] == [testLower characterAtIndex:i])
                         similiarities++;
+            
             LOGF(@"* MATCH: \"%@\" (%ld)", key, similiarities);
             if (similiarities > mostSimilarities) {
                 closest = key;
@@ -631,6 +648,16 @@ static const char *globalBlacklist[] = {
 }
 
 -(void)focusWindow:(NSString*)test {
+    if (Args.runScript) {
+        NSAppleScript *script = [[NSAppleScript alloc] initWithSource:[NSString stringWithFormat:@"%@ \"%@\"\n%@", @"set RCMDTEXT to", test, Args.runScript]];
+        NSDictionary *osaError = nil;
+        NSAppleEventDescriptor *result = [script executeAndReturnError:&osaError];
+        if (!result)
+            NSLog(@"ERROR: Failed to execute AppleScript -- %@", osaError);
+    }
+    
+    if (Args.disableSwitching)
+        return;
     NSArray *results = [self findBestMatch:test];
     assert(results && [results count]);
     Window *focuedWindow = nil;
@@ -826,12 +853,17 @@ static int CheckPrivileges(void) {
 }
 
 int main(int argc, char *argv[]) {
+    if (getuid() == 0 || geteuid() == 0) {
+        fprintf(stderr, "ERROR: You shouldn't run this as root\n");
+        return 1;
+    }
+    
     int opt;
     extern int optind;
     extern char* optarg;
     extern int optopt;
     const char *blacklistPath = NULL;
-    while ((opt = getopt_long(argc, argv, "hvdxmb:", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "hvdTtsxma:b:", long_options, NULL)) != -1) {
         switch (opt) {
             case 'm':
                 Args.enableManualMode = YES;
@@ -851,6 +883,24 @@ int main(int argc, char *argv[]) {
             case 't':
                 Args.disableText = YES;
                 break;
+            case 's':
+                Args.disableSwitching = YES;
+                break;
+            case 'a': {
+                if (![[NSFileManager defaultManager] fileExistsAtPath:@(optarg)]) {
+                    fprintf(stderr, "ERROR: No script found at \"%s\"\n", optarg);
+                    return 4;
+                }
+                NSError *error = nil;
+                Args.runScript = [NSString stringWithContentsOfFile:@(optarg)
+                                                           encoding:NSUTF8StringEncoding
+                                                              error:&error];
+                if (error) {
+                    fprintf(stderr, "ERROR: Failed to load script at \"%s\" -- %s\n", optarg, [[error localizedDescription] UTF8String]);
+                    return 5;
+                }
+                break;
+            }
             case 'v':
                 Args.enableVerboseMode = YES;
                 break;

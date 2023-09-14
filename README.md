@@ -24,6 +24,8 @@ usage: rcmd [options]
                                    with no windows on screen.
     * --no-menubar/-x -- Disable menubar icon
     * --no-text/-t -- Disable buffer text window
+    * --no-swtich/-s -- Disable application switching
+    * --applescript/-a -- Path to AppleScript file to run on event
     * --verbose/-b -- Enable logging
     * --help/-h -- Display this message
 ```
