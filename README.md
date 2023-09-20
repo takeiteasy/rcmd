@@ -2,6 +2,10 @@
 
 A simple MacOS application switcher, inspired by [rcmd](https://lowtechguys.com/rcmd/). I didn't want to spend $13 so I made a small app with a similar concept. **NOTE**: Neither I nor this repo have anything to do with the original rcmd app.
 
+<p align="center">
+  <img width="600" height="400" src="https://github.com/takeiteasy/rcmd/blob/master/demo.gif?raw=true">
+</p>
+
 ## Usage
 
 ```
@@ -40,12 +44,6 @@ usage: rcmd [options]
     * --verbose/-b -- Enable logging
     * --help/-h -- Display this message
 ```
-
-## Demo
-
-<p align="center">
-  <img width="600" height="400" src="https://github.com/takeiteasy/rcmd/blob/master/demo.gif?raw=true">
-</p>
 
 ## Build
 
