@@ -1,4 +1,4 @@
-# rcmd
+# rcmd 
 
 A simple MacOS application switcher, inspired by [rcmd](https://lowtechguys.com/rcmd/). I didn't want to spend $13 so I made a small app with a similar concept. **NOTE**: Neither I nor this repo have anything to do with the original rcmd app.
 
