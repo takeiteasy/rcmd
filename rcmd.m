@@ -147,7 +147,12 @@ static struct option long_options[] = {
 };
 
 static void usage(void) {
-    puts("usage: rcmd [options]");
+    puts(" usage: rcmd [options]");
+    puts("");
+    puts(" rcmd  Copyright (C) 2024  George Watson");
+    puts(" This program comes with ABSOLUTELY NO WARRANTY; for details type `show w'.");
+    puts(" This is free software, and you are welcome to redistribute it");
+    puts(" under certain conditions; type `show c' for details.");
     puts("");
     puts("  Description:");
     puts("    Press and hold the right command key then type what process you");
